@@ -66,6 +66,7 @@ final class AppViewModel: ObservableObject {
         if next.model.isEmpty {
             next.model = AppConfiguration.defaultModel
         }
+        next.editingModel = configuration.editingModel
         next.enableAIEditing = configuration.enableAIEditing
         next.autoTranslateRussianToEnglish = configuration.autoTranslateRussianToEnglish
         next.preferredTerms = configuration.preferredTerms
@@ -81,13 +82,14 @@ final class AppViewModel: ObservableObject {
         _ = await saveConfiguration(next)
     }
 
-    func saveConfiguration(apiKey: String, model: String, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
+    func saveConfiguration(apiKey: String, model: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
         var next = configuration
         next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         next.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
         if next.model.isEmpty {
             next.model = AppConfiguration.defaultModel
         }
+        next.editingModel = editingModel
         next.enableAIEditing = enableAIEditing
         next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
         next.preferredTerms = preferredTerms
@@ -329,7 +331,7 @@ final class AppViewModel: ObservableObject {
             .map(\.text)
             .reversed()
 
-        appendLog("AI editing started: previousMessages=\(previousMessages.count), model=\(AppConfiguration.defaultEditingModel), translateToEnglish=\(shouldTranslateToEnglish)")
+        appendLog("AI editing started: previousMessages=\(previousMessages.count), model=\(configuration.editingModel.rawValue), translateToEnglish=\(shouldTranslateToEnglish)")
 
         do {
             let client = OpenAIEditingClient()
@@ -337,6 +339,7 @@ final class AppViewModel: ObservableObject {
                 latestMessage: trimmed,
                 previousMessages: Array(previousMessages),
                 preferredTerms: preferredTerms,
+                model: configuration.editingModel.rawValue,
                 translateToEnglish: shouldTranslateToEnglish,
                 apiKey: apiKey
             )

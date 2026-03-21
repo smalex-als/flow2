@@ -41,7 +41,7 @@ final class OpenAIEditingClient {
         let choices: [Choice]
     }
 
-    func rewriteLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], translateToEnglish: Bool, apiKey: String) async throws -> String {
+    func rewriteLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], model: String, translateToEnglish: Bool, apiKey: String) async throws -> String {
         let trimmedLatestMessage = latestMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLatestMessage.isEmpty else {
             return trimmedLatestMessage
@@ -129,6 +129,7 @@ final class OpenAIEditingClient {
 
         let content = try await performRequest(
             request: request,
+            model: model,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt
         )
@@ -136,6 +137,7 @@ final class OpenAIEditingClient {
         if translateToEnglish, containsCyrillic(content) {
             return try await performRequest(
                 request: request,
+                model: model,
                 systemPrompt: strictEnglishRetryPrompt,
                 userPrompt: userPrompt
             )
@@ -144,10 +146,10 @@ final class OpenAIEditingClient {
         return content
     }
 
-    private func performRequest(request: URLRequest, systemPrompt: String, userPrompt: String) async throws -> String {
+    private func performRequest(request: URLRequest, model: String, systemPrompt: String, userPrompt: String) async throws -> String {
         var request = request
         let body = RequestBody(
-            model: AppConfiguration.defaultEditingModel,
+            model: model,
             temperature: 0.2,
             messages: [
                 .init(role: "system", content: systemPrompt),

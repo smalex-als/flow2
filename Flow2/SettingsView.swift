@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var draftKey = ""
     @State private var draftModel = ""
+    @State private var draftEditingModel: EditingModelPreset = AppConfiguration.defaultEditingModel
     @State private var draftEnableAIEditing = false
     @State private var draftAutoTranslateRussianToEnglish = false
     @State private var draftPreferredTerms = ""
@@ -29,6 +30,14 @@ struct SettingsView: View {
                     TextField("Transcription model", text: $draftModel)
                         .textFieldStyle(.roundedBorder)
 
+                    Picker("AI editing model", selection: $draftEditingModel) {
+                        ForEach(EditingModelPreset.allCases) { preset in
+                            Text(preset.displayName)
+                                .tag(preset)
+                        }
+                    }
+                    .disabled(!draftEnableAIEditing)
+
                     Toggle("Auto-edit transcript with AI", isOn: $draftEnableAIEditing)
 
                     Toggle("Auto-translate Russian to English", isOn: $draftAutoTranslateRussianToEnglish)
@@ -39,6 +48,10 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
 
                     Text("AI editing uses recent history as context and returns only the latest corrected message.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("Available GPT-5 post-processing options: Nano, Mini, and the full GPT-5.4 model.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -94,6 +107,7 @@ struct SettingsView: View {
                                 let didSave = await viewModel.saveConfiguration(
                                     apiKey: draftKey,
                                     model: model,
+                                    editingModel: draftEditingModel,
                                     enableAIEditing: draftEnableAIEditing,
                                     autoTranslateRussianToEnglish: draftAutoTranslateRussianToEnglish,
                                     preferredTerms: parsePreferredTerms(draftPreferredTerms),
@@ -118,6 +132,7 @@ struct SettingsView: View {
             await viewModel.loadConfiguration()
             draftKey = viewModel.configuration.apiKey
             draftModel = viewModel.configuration.model
+            draftEditingModel = viewModel.configuration.editingModel
             draftEnableAIEditing = viewModel.configuration.enableAIEditing
             draftAutoTranslateRussianToEnglish = viewModel.configuration.autoTranslateRussianToEnglish
             draftPreferredTerms = serializePreferredTerms(viewModel.configuration.preferredTerms)
