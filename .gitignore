@@ -1,0 +1,9 @@
+.DS_Store
+.deriveddata/
+DerivedData/
+build/
+
+xcuserdata/
+*.xcuserstate
+
+Flow2 2026-03-21 10-24-52/
