@@ -41,7 +41,7 @@ final class OpenAIEditingClient {
         let choices: [Choice]
     }
 
-    func rewriteLatestMessage(latestMessage: String, previousMessages: [String], translateToEnglish: Bool, apiKey: String) async throws -> String {
+    func rewriteLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], translateToEnglish: Bool, apiKey: String) async throws -> String {
         let trimmedLatestMessage = latestMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLatestMessage.isEmpty else {
             return trimmedLatestMessage
@@ -58,6 +58,7 @@ final class OpenAIEditingClient {
             You edit only the latest user message using the previous messages for context.
             Return only the rewritten latest message in English.
             Fix recognition mistakes, punctuation, grammar, and wording, keep the user's meaning, and translate the final result to natural English.
+            Treat the preferred terms list as authoritative. If the latest message seems to refer to one of those terms, prefer that spelling in the final answer.
             The final answer must be English only. Do not output Russian or any Cyrillic characters.
             Do not add explanations, quotes, prefixes, labels, or extra lines.
             """
@@ -67,6 +68,7 @@ final class OpenAIEditingClient {
             Return only the rewritten latest message.
             Preserve the original language unless the text itself clearly requests translation.
             Fix recognition mistakes, punctuation, grammar, and wording, but keep the user's meaning.
+            Treat the preferred terms list as authoritative. If the latest message seems to refer to one of those terms, prefer that spelling in the final answer.
             Do not add explanations, quotes, prefixes, labels, or extra lines.
             """
         }
@@ -74,6 +76,7 @@ final class OpenAIEditingClient {
         let strictEnglishRetryPrompt = """
         Rewrite only the latest message in natural English.
         Return one plain sentence or paragraph in English only.
+        Treat the preferred terms list as authoritative.
         Do not output Russian or any Cyrillic characters.
         Do not add explanations, quotes, prefixes, labels, or extra lines.
         """
@@ -82,9 +85,32 @@ final class OpenAIEditingClient {
             "\(index + 1). \(message)"
         }.joined(separator: "\n")
 
+        let dictionaryContext = preferredTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { "- \($0)" }
+            .compactMap { $0 }
+            .joined(separator: "\n")
+
         let userPrompt: String
-        if previousContext.isEmpty {
+        if previousContext.isEmpty, dictionaryContext.isEmpty {
             userPrompt = """
+            Latest message:
+            \(trimmedLatestMessage)
+            """
+        } else if previousContext.isEmpty {
+            userPrompt = """
+            Preferred terms:
+            \(dictionaryContext)
+
+            Latest message:
+            \(trimmedLatestMessage)
+            """
+        } else if dictionaryContext.isEmpty {
+            userPrompt = """
+            Previous messages:
+            \(previousContext)
+
             Latest message:
             \(trimmedLatestMessage)
             """
@@ -92,6 +118,9 @@ final class OpenAIEditingClient {
             userPrompt = """
             Previous messages:
             \(previousContext)
+
+            Preferred terms:
+            \(dictionaryContext)
 
             Latest message:
             \(trimmedLatestMessage)

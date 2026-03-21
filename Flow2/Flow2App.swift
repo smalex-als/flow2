@@ -19,7 +19,7 @@ struct Flow2App: App {
         Settings {
             SettingsView()
                 .environmentObject(viewModel)
-                .frame(width: 520, height: 320)
+                .frame(width: 760, height: 640)
         }
 
         MenuBarExtra("Flow2", systemImage: viewModel.isRecording ? "waveform.circle.fill" : "mic.circle") {
@@ -37,6 +37,10 @@ private struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(viewModel.isRecording ? "Recording..." : viewModel.statusText)
                 .font(.headline)
+
+            Text(viewModel.configuration.hotKeyPreset.displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Button(viewModel.isRecording ? "Stop Recording" : "Start Recording") {
                 Task {
@@ -69,6 +73,7 @@ private struct MenuBarContentView: View {
         }
         .padding(14)
         .frame(width: 340)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var aiEditingBinding: Binding<Bool> {

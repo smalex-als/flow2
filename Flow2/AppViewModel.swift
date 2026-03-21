@@ -59,7 +59,7 @@ final class AppViewModel: ObservableObject {
         refreshAccessibilityStatus()
     }
 
-    func saveConfiguration(apiKey: String, model: String) async {
+    func saveConfiguration(apiKey: String, model: String) async -> Bool {
         var next = configuration
         next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         next.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,19 +68,20 @@ final class AppViewModel: ObservableObject {
         }
         next.enableAIEditing = configuration.enableAIEditing
         next.autoTranslateRussianToEnglish = configuration.autoTranslateRussianToEnglish
+        next.preferredTerms = configuration.preferredTerms
         next.hotKeyPreset = configuration.hotKeyPreset
 
-        await saveConfiguration(next)
+        return await saveConfiguration(next)
     }
 
     func updateQuickToggles(enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool) async {
         var next = configuration
         next.enableAIEditing = enableAIEditing
         next.autoTranslateRussianToEnglish = enableAIEditing ? autoTranslateRussianToEnglish : false
-        await saveConfiguration(next)
+        _ = await saveConfiguration(next)
     }
 
-    func saveConfiguration(apiKey: String, model: String, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, hotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async {
+    func saveConfiguration(apiKey: String, model: String, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
         var next = configuration
         next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         next.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -89,13 +90,14 @@ final class AppViewModel: ObservableObject {
         }
         next.enableAIEditing = enableAIEditing
         next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
+        next.preferredTerms = preferredTerms
         next.hotKeyPreset = hotKeyPreset
         next.launchAtLogin = launchAtLogin
 
-        await saveConfiguration(next)
+        return await saveConfiguration(next)
     }
 
-    private func saveConfiguration(_ next: AppConfiguration) async {
+    private func saveConfiguration(_ next: AppConfiguration) async -> Bool {
         var resolved = next
         var launchAtLoginError: Error?
 
@@ -106,7 +108,7 @@ final class AppViewModel: ObservableObject {
         } catch {
             statusText = "Could not save config: \(error.localizedDescription)"
             appendLog("Settings save failed: \(error.localizedDescription)")
-            return
+            return false
         }
 
         do {
@@ -124,6 +126,8 @@ final class AppViewModel: ObservableObject {
         } else {
             statusText = "Settings saved"
         }
+
+        return true
     }
 
     func toggleRecording() async {
@@ -250,6 +254,14 @@ final class AppViewModel: ObservableObject {
             statusText = "Transcription complete"
             addTranscriptToHistory(finalText)
 
+            if shouldSkipExternalInsertion(for: insertionTargetApp) {
+                insertionStatus = "Transcript kept in the Flow2 window"
+                appendLog("Insertion skipped: targetApp=Flow2")
+                insertionTargetApp = nil
+                isBusy = false
+                return
+            }
+
             do {
                 let details = try await textInsertionService.insert(finalText, targetApp: insertionTargetApp)
                 insertionStatus = "Transcript inserted into the active app"
@@ -304,8 +316,12 @@ final class AppViewModel: ObservableObject {
 
     private func autoEditTranscriptIfNeeded(_ text: String, apiKey: String) async -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard configuration.enableAIEditing else { return trimmed }
         guard !trimmed.isEmpty else { return trimmed }
+        let preferredTerms = configuration.preferredTerms
+
+        guard configuration.enableAIEditing else {
+            return trimmed
+        }
         let shouldTranslateToEnglish = configuration.autoTranslateRussianToEnglish && containsRussianText(trimmed)
 
         let previousMessages = transcriptHistory
@@ -320,6 +336,7 @@ final class AppViewModel: ObservableObject {
             let editedText = try await client.rewriteLatestMessage(
                 latestMessage: trimmed,
                 previousMessages: Array(previousMessages),
+                preferredTerms: preferredTerms,
                 translateToEnglish: shouldTranslateToEnglish,
                 apiKey: apiKey
             )
@@ -335,6 +352,11 @@ final class AppViewModel: ObservableObject {
         text.unicodeScalars.contains { scalar in
             (0x0400 ... 0x04FF).contains(scalar.value) || (0x0500 ... 0x052F).contains(scalar.value)
         }
+    }
+
+    private func shouldSkipExternalInsertion(for targetApp: NSRunningApplication?) -> Bool {
+        guard let targetApp else { return false }
+        return targetApp.processIdentifier == ProcessInfo.processInfo.processIdentifier
     }
 }
 

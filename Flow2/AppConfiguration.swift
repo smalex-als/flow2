@@ -27,6 +27,7 @@ struct AppConfiguration: Codable {
     var model = Self.defaultModel
     var enableAIEditing = false
     var autoTranslateRussianToEnglish = false
+    var preferredTerms: [String] = []
     var hotKeyPreset: HotKeyPreset = .controlSpace
     var launchAtLogin = false
 }

@@ -10,6 +10,16 @@ struct ContentView: View {
             footer
         }
         .padding(24)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .controlBackgroundColor).opacity(0.65)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .frame(minWidth: 920, minHeight: 820)
     }
 
@@ -17,10 +27,16 @@ struct ContentView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Flow2")
-                    .font(.system(size: 30, weight: .semibold))
-                Text("Record speech, transcribe with OpenAI, and inspect the text before we add global hotkey and cross-app insertion.")
+                    .font(.system(size: 32, weight: .semibold))
+                Text("Push-to-talk dictation for macOS with OpenAI transcription, AI cleanup, and direct app insertion.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    statusChip(title: viewModel.configuration.hotKeyPreset.displayName, systemImage: "keyboard")
+                    statusChip(title: viewModel.configuration.enableAIEditing ? "AI Edit On" : "AI Edit Off", systemImage: "sparkles")
+                    statusChip(title: "\(viewModel.transcriptHistory.count) Saved", systemImage: "text.quote")
+                }
             }
 
             Spacer()
@@ -35,11 +51,15 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Transcripts")
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
                 Spacer()
                 Text("\(viewModel.transcriptHistory.count)")
-                    .font(.caption)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(Capsule())
             }
 
             ZStack(alignment: .topLeading) {
@@ -56,31 +76,30 @@ struct ContentView: View {
                             ForEach(Array(viewModel.transcriptHistory.enumerated()), id: \.element.id) { index, item in
                                 VStack(alignment: .leading, spacing: 10) {
                                     HStack(alignment: .top) {
-                                        if index == 0 {
-                                            Text("Latest")
-                                                .font(.caption.weight(.semibold))
-                                                .foregroundStyle(.secondary)
-                                        } else {
-                                            Text(item.createdAt, style: .time)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
+                                        Label(index == 0 ? "Latest" : item.createdAt.formatted(date: .omitted, time: .shortened),
+                                              systemImage: index == 0 ? "bolt.fill" : "clock")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(index == 0 ? .primary : .secondary)
 
                                         Spacer()
 
                                         Button("Copy") {
                                             viewModel.copyHistoryItem(item)
                                         }
+                                        .buttonStyle(.borderless)
 
                                         Button("Delete") {
                                             viewModel.deleteHistoryItem(item)
                                         }
+                                        .buttonStyle(.borderless)
+                                        .foregroundStyle(.red)
                                     }
 
                                     Text(item.text)
-                                        .font(.system(size: 16))
+                                        .font(.system(size: 18))
                                         .textSelection(.enabled)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                        .lineSpacing(3)
                                 }
                                 .padding(16)
                                 .background(Color(nsColor: .controlBackgroundColor))
@@ -116,47 +135,38 @@ struct ContentView: View {
                 }
             }
 
-            HStack(spacing: 12) {
-                Button {
-                    Task {
-                        await viewModel.toggleRecording()
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    Button {
+                        Task {
+                            await viewModel.toggleRecording()
+                        }
+                    } label: {
+                        Label(viewModel.isRecording ? "Stop Recording" : "Start Recording",
+                              systemImage: viewModel.isRecording ? "stop.circle.fill" : "mic.circle.fill")
                     }
-                } label: {
-                    Label(viewModel.isRecording ? "Stop Recording" : "Start Recording",
-                          systemImage: viewModel.isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                }
-                .keyboardShortcut(.space, modifiers: [])
-                .controlSize(.large)
-                .disabled(viewModel.isBusy)
+                    .keyboardShortcut(.space, modifiers: [])
+                    .controlSize(.large)
+                    .disabled(viewModel.isBusy)
 
-                if viewModel.isBusy {
-                    ProgressView()
-                        .controlSize(.small)
+                    if viewModel.isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Text(viewModel.statusText)
+                        .foregroundStyle(.secondary)
                 }
 
-                Text(viewModel.statusText)
-                    .foregroundStyle(.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
+                    footerInfoCard(title: "Model", value: viewModel.configuration.model, systemImage: "cpu")
+                    footerInfoCard(title: "Hotkey", value: viewModel.hotKeyStatus, systemImage: "keyboard")
+                    footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
+                    footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
+                }
             }
 
-            Text("Current model: \(viewModel.configuration.model)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text(viewModel.hotKeyStatus)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text(viewModel.insertionStatus)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             HStack(spacing: 10) {
-                Text(viewModel.accessibilityStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
                 Button("Request Accessibility Access") {
                     viewModel.requestAccessibilityAccess()
                 }
@@ -215,5 +225,30 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func statusChip(title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.1))
+            .clipShape(Capsule())
+    }
+
+    private func footerInfoCard(title: String, value: String, systemImage: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text(value)
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
