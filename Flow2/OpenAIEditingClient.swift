@@ -58,6 +58,7 @@ final class OpenAIEditingClient {
             You edit only the latest user message using the previous messages for context.
             Return only the rewritten latest message in English.
             Fix recognition mistakes, punctuation, grammar, and wording, keep the user's meaning, and translate the final result to natural English.
+            The final answer must be English only. Do not output Russian or any Cyrillic characters.
             Do not add explanations, quotes, prefixes, labels, or extra lines.
             """
         } else {
@@ -69,6 +70,13 @@ final class OpenAIEditingClient {
             Do not add explanations, quotes, prefixes, labels, or extra lines.
             """
         }
+
+        let strictEnglishRetryPrompt = """
+        Rewrite only the latest message in natural English.
+        Return one plain sentence or paragraph in English only.
+        Do not output Russian or any Cyrillic characters.
+        Do not add explanations, quotes, prefixes, labels, or extra lines.
+        """
 
         let previousContext = previousMessages.enumerated().map { index, message in
             "\(index + 1). \(message)"
@@ -90,6 +98,25 @@ final class OpenAIEditingClient {
             """
         }
 
+        let content = try await performRequest(
+            request: request,
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt
+        )
+
+        if translateToEnglish, containsCyrillic(content) {
+            return try await performRequest(
+                request: request,
+                systemPrompt: strictEnglishRetryPrompt,
+                userPrompt: userPrompt
+            )
+        }
+
+        return content
+    }
+
+    private func performRequest(request: URLRequest, systemPrompt: String, userPrompt: String) async throws -> String {
+        var request = request
         let body = RequestBody(
             model: AppConfiguration.defaultEditingModel,
             temperature: 0.2,
@@ -118,5 +145,11 @@ final class OpenAIEditingClient {
         }
 
         return content
+    }
+
+    private func containsCyrillic(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            (0x0400 ... 0x04FF).contains(scalar.value) || (0x0500 ... 0x052F).contains(scalar.value)
+        }
     }
 }

@@ -156,12 +156,12 @@ final class GlobalHotKeyManager {
 
     private func carbonModifiers(for preset: HotKeyPreset) -> Int {
         switch preset {
+        case .controlSpace:
+            return controlKey
         case .shiftCommandSpace:
             return cmdKey | shiftKey
         case .optionCommandSpace:
             return cmdKey | optionKey
-        case .controlOptionSpace:
-            return controlKey | optionKey
         }
     }
 }

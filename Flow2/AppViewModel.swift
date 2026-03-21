@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ServiceManagement
+import SwiftUI
 
 extension Notification.Name {
     static let flow2ConfigurationDidChange = Notification.Name("flow2ConfigurationDidChange")
@@ -38,6 +39,7 @@ final class AppViewModel: ObservableObject {
     private let recorder = AudioRecorder()
     private let textInsertionService = TextInsertionService()
     private let launchAtLoginService = LaunchAtLoginService()
+    private let recordingIndicator = RecordingIndicatorController()
     private var insertionTargetApp: NSRunningApplication?
 
     func loadConfiguration() async {
@@ -208,6 +210,7 @@ final class AppViewModel: ObservableObject {
             insertionTargetApp = NSWorkspace.shared.frontmostApplication
             let url = try await recorder.start()
             isRecording = true
+            recordingIndicator.show()
             transcript = ""
             statusText = "Recording to \(url.lastPathComponent)"
             let targetAppName = insertionTargetApp?.localizedName ?? "unknown"
@@ -222,6 +225,7 @@ final class AppViewModel: ObservableObject {
         guard isRecording else { return }
         isBusy = true
         isRecording = false
+        recordingIndicator.hide()
 
         do {
             let fileURL = try await recorder.stop()
@@ -330,6 +334,67 @@ final class AppViewModel: ObservableObject {
     private func containsRussianText(_ text: String) -> Bool {
         text.unicodeScalars.contains { scalar in
             (0x0400 ... 0x04FF).contains(scalar.value) || (0x0500 ... 0x052F).contains(scalar.value)
+        }
+    }
+}
+
+@MainActor
+final class RecordingIndicatorController {
+    private var panel: NSPanel?
+
+    func show() {
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        position(panel)
+        panel.orderFrontRegardless()
+    }
+
+    func hide() {
+        panel?.orderOut(nil)
+    }
+
+    private func makePanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 112, height: 112),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = true
+        panel.contentView = NSHostingView(rootView: RecordingIndicatorView())
+        return panel
+    }
+
+    private func position(_ panel: NSPanel) {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let visibleFrame = screen.visibleFrame
+        let x = visibleFrame.midX - (panel.frame.width / 2)
+        let y = visibleFrame.midY - (panel.frame.height / 2)
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+}
+
+private struct RecordingIndicatorView: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.82))
+            Image(systemName: "mic.fill")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 112, height: 112)
+        .overlay {
+            Circle()
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
         }
     }
 }

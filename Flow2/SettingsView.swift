@@ -6,7 +6,7 @@ struct SettingsView: View {
     @State private var draftModel = ""
     @State private var draftEnableAIEditing = false
     @State private var draftAutoTranslateRussianToEnglish = false
-    @State private var draftHotKeyPreset: HotKeyPreset = .shiftCommandSpace
+    @State private var draftHotKeyPreset: HotKeyPreset = .controlSpace
     @State private var draftLaunchAtLogin = false
     @State private var didLoadDrafts = false
 

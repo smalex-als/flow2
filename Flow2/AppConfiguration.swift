@@ -1,20 +1,20 @@
 import Foundation
 
 enum HotKeyPreset: String, Codable, CaseIterable, Identifiable {
+    case controlSpace
     case shiftCommandSpace
     case optionCommandSpace
-    case controlOptionSpace
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
+        case .controlSpace:
+            return "Control+Space"
         case .shiftCommandSpace:
             return "Shift+Command+Space"
         case .optionCommandSpace:
             return "Option+Command+Space"
-        case .controlOptionSpace:
-            return "Control+Option+Space"
         }
     }
 }
@@ -27,7 +27,7 @@ struct AppConfiguration: Codable {
     var model = Self.defaultModel
     var enableAIEditing = false
     var autoTranslateRussianToEnglish = false
-    var hotKeyPreset: HotKeyPreset = .shiftCommandSpace
+    var hotKeyPreset: HotKeyPreset = .controlSpace
     var launchAtLogin = false
 }
 
