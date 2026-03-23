@@ -52,6 +52,10 @@ final class TextInsertionService {
             return try await typeText(trimmed, targetApp: targetApp)
         }
 
+        if shouldPreferPasteInsertion(targetApp) {
+            return try await paste(trimmed)
+        }
+
         do {
             return try insertDirectly(trimmed)
         } catch {
@@ -75,15 +79,21 @@ final class TextInsertionService {
         let element = unsafeDowncast(focusedObject, to: AXUIElement.self)
         let role = copyStringAttribute(kAXRoleAttribute as CFString, from: element) ?? "unknown"
         let subrole = copyStringAttribute(kAXSubroleAttribute as CFString, from: element) ?? "none"
+        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
 
-        if var currentValue = copyStringAttribute(kAXValueAttribute as CFString, from: element) {
+        let selectedTextStatus = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
+        if selectedTextStatus == .success {
+            return "Direct AX insertion succeeded: app=\(app), role=\(role), subrole=\(subrole), path=selectedText, textLength=\(text.count)"
+        }
+
+        if shouldUseValueReplacement(role: role),
+           var currentValue = copyStringAttribute(kAXValueAttribute as CFString, from: element) {
             let nsRange = try selectedRange(in: element)
-            if let swiftRange = Range(nsRange, in: currentValue) {
-                currentValue.replaceSubrange(swiftRange, with: text)
-            } else {
-                currentValue.append(text)
+            guard let swiftRange = Range(nsRange, in: currentValue) else {
+                throw TextInsertionError.directInsertionFailed("invalid selected range for value replacement, role=\(role), subrole=\(subrole)")
             }
 
+            currentValue.replaceSubrange(swiftRange, with: text)
             let setStatus = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, currentValue as CFTypeRef)
             guard setStatus == .success else {
                 throw TextInsertionError.directInsertionFailed("set value status=\(setStatus.rawValue), role=\(role), subrole=\(subrole)")
@@ -91,17 +101,9 @@ final class TextInsertionService {
 
             let newLocation = nsRange.location + text.utf16.count
             setSelectedRange(location: newLocation, in: element)
-            let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
             return "Direct AX insertion succeeded: app=\(app), role=\(role), subrole=\(subrole), path=value, textLength=\(text.count)"
         }
-
-        let selectedTextStatus = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
-        guard selectedTextStatus == .success else {
-            throw TextInsertionError.directInsertionFailed("missing string value and selected-text set status=\(selectedTextStatus.rawValue), role=\(role), subrole=\(subrole)")
-        }
-
-        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
-        return "Direct AX insertion succeeded: app=\(app), role=\(role), subrole=\(subrole), path=selectedText, textLength=\(text.count)"
+        throw TextInsertionError.directInsertionFailed("selected-text set status=\(selectedTextStatus.rawValue), role=\(role), subrole=\(subrole)")
     }
 
     private func selectedRange(in element: AXUIElement) throws -> NSRange {
@@ -137,6 +139,10 @@ final class TextInsertionService {
         return object as? String
     }
 
+    private func shouldUseValueReplacement(role: String) -> Bool {
+        role == kAXTextFieldRole as String || role == "AXSearchField" || role == kAXComboBoxRole as String
+    }
+
     private func paste(_ text: String) async throws -> String {
         let pasteboard = NSPasteboard.general
         let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
@@ -159,13 +165,11 @@ final class TextInsertionService {
         vDown.flags = CGEventFlags.maskCommand
         vUp.flags = CGEventFlags.maskCommand
 
-        try postPasteShortcut(commandDown: commandDown, vDown: vDown, vUp: vUp, commandUp: commandUp, tap: .cgAnnotatedSessionEventTap)
-        try? await Task.sleep(for: .milliseconds(80))
         try postPasteShortcut(commandDown: commandDown, vDown: vDown, vUp: vUp, commandUp: commandUp, tap: .cghidEventTap)
 
         try? await Task.sleep(for: .seconds(2))
 
-        return "Paste path executed: app=\(frontmostAppName), pasteboard set to transcript, Cmd+V posted via annotated+hID taps, pasteboard retained"
+        return "Paste path executed: app=\(frontmostAppName), pasteboard set to transcript, Cmd+V posted via hID tap, pasteboard retained"
     }
 
     private func typeText(_ text: String, targetApp: NSRunningApplication?) async throws -> String {
@@ -214,5 +218,10 @@ final class TextInsertionService {
     private func isTerminalApp(_ targetApp: NSRunningApplication?) -> Bool {
         guard let bundleIdentifier = targetApp?.bundleIdentifier else { return false }
         return bundleIdentifier == "com.apple.Terminal" || bundleIdentifier == "com.googlecode.iterm2"
+    }
+
+    private func shouldPreferPasteInsertion(_ targetApp: NSRunningApplication?) -> Bool {
+        guard let bundleIdentifier = targetApp?.bundleIdentifier else { return false }
+        return bundleIdentifier == "com.google.Chrome" || bundleIdentifier == "md.obsidian"
     }
 }

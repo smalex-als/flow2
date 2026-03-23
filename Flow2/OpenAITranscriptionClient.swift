@@ -3,6 +3,7 @@ import Foundation
 enum OpenAITranscriptionError: LocalizedError {
     case invalidResponse
     case requestFailed(String)
+    case timedOut
 
     var errorDescription: String? {
         switch self {
@@ -10,11 +11,24 @@ enum OpenAITranscriptionError: LocalizedError {
             return "The API returned an invalid response."
         case .requestFailed(let message):
             return message
+        case .timedOut:
+            return "The transcription request timed out."
         }
     }
 }
 
 final class OpenAITranscriptionClient {
+    private static let requestTimeout: TimeInterval = 15
+    private static let resourceTimeout: TimeInterval = 20
+
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+        configuration.waitsForConnectivity = true
+        return URLSession(configuration: configuration)
+    }()
+
     private struct AudioResponse: Decodable {
         let text: String
     }
@@ -22,13 +36,21 @@ final class OpenAITranscriptionClient {
     func transcribe(audioFileURL: URL, apiKey: String, model: String) async throws -> String {
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
         request.httpMethod = "POST"
+        request.timeoutInterval = Self.requestTimeout
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let body = try makeMultipartBody(audioFileURL: audioFileURL, model: model, boundary: boundary)
-        let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await Self.session.upload(for: request, from: body)
+        } catch let error as URLError where error.code == .timedOut {
+            throw OpenAITranscriptionError.timedOut
+        } catch {
+            throw error
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw OpenAITranscriptionError.invalidResponse

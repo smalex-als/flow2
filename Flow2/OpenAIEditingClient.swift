@@ -4,6 +4,7 @@ enum OpenAIEditingError: LocalizedError {
     case invalidResponse
     case requestFailed(String)
     case emptyChoice
+    case timedOut
 
     var errorDescription: String? {
         switch self {
@@ -13,11 +14,21 @@ enum OpenAIEditingError: LocalizedError {
             return message
         case .emptyChoice:
             return "The AI editing API returned an empty message."
+        case .timedOut:
+            return "The AI editing request timed out."
         }
     }
 }
 
 final class OpenAIEditingClient {
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 180
+        configuration.timeoutIntervalForResource = 300
+        configuration.waitsForConnectivity = true
+        return URLSession(configuration: configuration)
+    }()
+
     private struct RequestBody: Encodable {
         struct Message: Encodable {
             let role: String
@@ -49,6 +60,7 @@ final class OpenAIEditingClient {
 
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
         request.httpMethod = "POST"
+        request.timeoutInterval = 180
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -159,7 +171,14 @@ final class OpenAIEditingClient {
 
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await Self.session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw OpenAIEditingError.timedOut
+        } catch {
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw OpenAIEditingError.invalidResponse
         }
