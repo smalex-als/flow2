@@ -3,7 +3,7 @@ import Foundation
 enum OpenAITranscriptionError: LocalizedError {
     case invalidResponse
     case requestFailed(String)
-    case timedOut
+    case timedOut(attempts: Int)
 
     var errorDescription: String? {
         switch self {
@@ -11,13 +11,14 @@ enum OpenAITranscriptionError: LocalizedError {
             return "The API returned an invalid response."
         case .requestFailed(let message):
             return message
-        case .timedOut:
-            return "The transcription request timed out."
+        case .timedOut(let attempts):
+            return "The transcription request timed out after \(attempts) attempts."
         }
     }
 }
 
 final class OpenAITranscriptionClient {
+    private static let maxAttempts = 3
     private static let requestTimeout: TimeInterval = 15
     private static let resourceTimeout: TimeInterval = 20
 
@@ -33,36 +34,52 @@ final class OpenAITranscriptionClient {
         let text: String
     }
 
-    func transcribe(audioFileURL: URL, apiKey: String, model: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = Self.requestTimeout
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    func transcribe(audioFileURL: URL, apiKey: String, model: String, onAttempt: (@Sendable (Int, Int) -> Void)? = nil) async throws -> String {
+        var lastRetryableError: URLError?
 
-        let boundary = "Boundary-\(UUID().uuidString)"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        for attempt in 1 ... Self.maxAttempts {
+            onAttempt?(attempt, Self.maxAttempts)
+            var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = Self.requestTimeout
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
-        let body = try makeMultipartBody(audioFileURL: audioFileURL, model: model, boundary: boundary)
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await Self.session.upload(for: request, from: body)
-        } catch let error as URLError where error.code == .timedOut {
-            throw OpenAITranscriptionError.timedOut
-        } catch {
-            throw error
+            let boundary = "Boundary-\(UUID().uuidString)"
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+            let body = try makeMultipartBody(audioFileURL: audioFileURL, model: model, boundary: boundary)
+            let (data, response): (Data, URLResponse)
+            do {
+                (data, response) = try await Self.session.upload(for: request, from: body)
+            } catch let error as URLError where Self.shouldRetry(error) && attempt < Self.maxAttempts {
+                lastRetryableError = error
+                try? await Task.sleep(for: Self.retryDelay(for: attempt))
+                continue
+            } catch let error as URLError where Self.shouldRetry(error) {
+                lastRetryableError = error
+                break
+            } catch {
+                throw error
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw OpenAITranscriptionError.invalidResponse
+            }
+
+            guard (200 ..< 300).contains(httpResponse.statusCode) else {
+                let message = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+                throw OpenAITranscriptionError.requestFailed(message)
+            }
+
+            let decoded = try JSONDecoder().decode(AudioResponse.self, from: data)
+            return decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAITranscriptionError.invalidResponse
+        if lastRetryableError != nil {
+            throw OpenAITranscriptionError.timedOut(attempts: Self.maxAttempts)
         }
 
-        guard (200 ..< 300).contains(httpResponse.statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
-            throw OpenAITranscriptionError.requestFailed(message)
-        }
-
-        let decoded = try JSONDecoder().decode(AudioResponse.self, from: data)
-        return decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        throw OpenAITranscriptionError.invalidResponse
     }
 
     private func makeMultipartBody(audioFileURL: URL, model: String, boundary: String) throws -> Data {
@@ -81,6 +98,21 @@ final class OpenAITranscriptionClient {
 
         body.append(string: "--\(boundary)--\r\n")
         return body
+    }
+
+    private static func shouldRetry(_ error: URLError) -> Bool {
+        error.code == .timedOut || error.code == .networkConnectionLost || error.code == .cannotConnectToHost
+    }
+
+    private static func retryDelay(for attempt: Int) -> Duration {
+        switch attempt {
+        case 1:
+            return .milliseconds(300)
+        case 2:
+            return .milliseconds(700)
+        default:
+            return .seconds(1)
+        }
     }
 }
 

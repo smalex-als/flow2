@@ -248,7 +248,16 @@ final class AppViewModel: ObservableObject {
             }
 
             let client = OpenAITranscriptionClient()
-            let rawText = try await client.transcribe(audioFileURL: fileURL, apiKey: apiKey, model: configuration.model)
+            let rawText = try await client.transcribe(
+                audioFileURL: fileURL,
+                apiKey: apiKey,
+                model: configuration.model,
+                onAttempt: { [weak self] attempt, total in
+                    Task { @MainActor [weak self] in
+                        self?.appendLog("Transcription attempt \(attempt)/\(total)")
+                    }
+                }
+            )
             appendLog("Transcription complete: \(rawText.count) chars")
 
             let finalText = await autoEditTranscriptIfNeeded(rawText, apiKey: apiKey)
