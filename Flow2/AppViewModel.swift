@@ -11,11 +11,32 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     let id: UUID
     let createdAt: Date
     let text: String
+    let failedRecordingFilePath: String?
+    let failedRecordingFileName: String?
+    let failureReason: String?
 
-    init(id: UUID = UUID(), createdAt: Date = Date(), text: String) {
+    var isFailedRecording: Bool {
+        failedRecordingFilePath != nil
+    }
+
+    init(id: UUID = UUID(), createdAt: Date = Date(), text: String, failedRecordingFilePath: String? = nil, failedRecordingFileName: String? = nil, failureReason: String? = nil) {
         self.id = id
         self.createdAt = createdAt
         self.text = text
+        self.failedRecordingFilePath = failedRecordingFilePath
+        self.failedRecordingFileName = failedRecordingFileName
+        self.failureReason = failureReason
+    }
+
+    static func failedRecording(fileURL: URL, reason: String, id: UUID = UUID(), createdAt: Date = Date()) -> TranscriptHistoryItem {
+        TranscriptHistoryItem(
+            id: id,
+            createdAt: createdAt,
+            text: "",
+            failedRecordingFilePath: fileURL.path,
+            failedRecordingFileName: fileURL.lastPathComponent,
+            failureReason: reason
+        )
     }
 }
 
@@ -163,6 +184,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func copyHistoryItem(_ item: TranscriptHistoryItem) {
+        guard !item.isFailedRecording else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(item.text, forType: .string)
@@ -181,6 +203,38 @@ final class AppViewModel: ObservableObject {
             statusText = "Could not delete history item: \(error.localizedDescription)"
             appendLog("History delete failed: \(error.localizedDescription)")
         }
+    }
+
+    func retryHistoryItem(_ item: TranscriptHistoryItem) async {
+        guard !isBusy, !isRecording else { return }
+        guard let path = item.failedRecordingFilePath else { return }
+
+        let fileURL = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            deleteHistoryItem(item)
+            statusText = "Failed recording is no longer available"
+            appendLog("Manual transcription retry aborted: missing file \(fileURL.lastPathComponent)")
+            return
+        }
+
+        isBusy = true
+        statusText = "Retrying \(fileURL.lastPathComponent)..."
+        appendLog("Manual transcription retry started: \(fileURL.lastPathComponent)")
+
+        do {
+            try await transcribeRecordedFile(
+                fileURL: fileURL,
+                targetApp: nil,
+                shouldInsertExternally: false,
+                replacingHistoryItemID: item.id
+            )
+        } catch {
+            updateFailedHistoryItem(item.id, fileURL: fileURL, reason: error.localizedDescription)
+            statusText = "Failed: \(error.localizedDescription)"
+            appendLog("Manual transcription retry failed: \(error.localizedDescription)")
+        }
+
+        isBusy = false
     }
 
     func copyDebugLog() {
@@ -232,65 +286,94 @@ final class AppViewModel: ObservableObject {
         isBusy = true
         isRecording = false
         recordingIndicator.hide()
+        var recordedFileURL: URL?
 
         do {
             let fileURL = try await recorder.stop()
+            recordedFileURL = fileURL
             statusText = "Uploading audio..."
             appendLog("Recording stopped: \(fileURL.lastPathComponent)")
-
-            let apiKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !apiKey.isEmpty else {
-                isShowingMissingKeyAlert = true
-                statusText = "API key required"
-                isBusy = false
-                appendLog("Insertion aborted: missing API key")
-                return
-            }
-
-            let client = OpenAITranscriptionClient()
-            let rawText = try await client.transcribe(
-                audioFileURL: fileURL,
-                apiKey: apiKey,
-                model: configuration.model,
-                onAttempt: { [weak self] attempt, total in
-                    Task { @MainActor [weak self] in
-                        self?.appendLog("Transcription attempt \(attempt)/\(total)")
-                    }
-                }
-            )
-            appendLog("Transcription complete: \(rawText.count) chars")
-
-            let finalText = await autoEditTranscriptIfNeeded(rawText, apiKey: apiKey)
-            transcript = finalText
-            statusText = "Transcription complete"
-            addTranscriptToHistory(finalText)
-
-            if shouldSkipExternalInsertion(for: insertionTargetApp) {
-                insertionStatus = "Transcript kept in the Flow2 window"
-                appendLog("Insertion skipped: targetApp=Flow2")
-                insertionTargetApp = nil
-                isBusy = false
-                return
-            }
-
-            do {
-                let details = try await textInsertionService.insert(finalText, targetApp: insertionTargetApp)
-                insertionStatus = "Transcript inserted into the active app"
-                refreshAccessibilityStatus()
-                appendLog(details)
-            } catch {
-                insertionStatus = "Insertion failed. Check Accessibility/Input Monitoring permissions."
-                statusText = "Transcript ready, but insertion failed: \(error.localizedDescription)"
-                refreshAccessibilityStatus()
-                appendLog("Insertion failed: \(error.localizedDescription)")
-            }
+            try await transcribeRecordedFile(fileURL: fileURL, targetApp: insertionTargetApp, shouldInsertExternally: true)
         } catch {
+            if let fileURL = recordedFileURL {
+                insertFailedHistoryItem(fileURL: fileURL, reason: error.localizedDescription)
+            }
             statusText = "Failed: \(error.localizedDescription)"
             appendLog("Stop/transcribe flow failed: \(error.localizedDescription)")
         }
 
         insertionTargetApp = nil
         isBusy = false
+    }
+
+    private func transcribeRecordedFile(fileURL: URL, targetApp: NSRunningApplication?, shouldInsertExternally: Bool, replacingHistoryItemID: UUID? = nil) async throws {
+        let apiKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            isShowingMissingKeyAlert = true
+            appendLog("Insertion aborted: missing API key")
+            throw OpenAITranscriptionError.requestFailed("API key required")
+        }
+
+        let client = OpenAITranscriptionClient()
+        let rawText = try await client.transcribe(
+            audioFileURL: fileURL,
+            apiKey: apiKey,
+            model: configuration.model,
+            onAttempt: { [weak self] attempt, total in
+                Task { @MainActor [weak self] in
+                    self?.appendLog("Transcription attempt \(attempt)/\(total)")
+                }
+            }
+        )
+        appendLog("Transcription complete: \(rawText.count) chars")
+        if let replacingHistoryItemID {
+            transcriptHistory.removeAll { $0.id == replacingHistoryItemID }
+            saveHistory()
+        }
+
+        let finalText = await autoEditTranscriptIfNeeded(rawText, apiKey: apiKey)
+        transcript = finalText
+        statusText = "Transcription complete"
+        addTranscriptToHistory(finalText)
+
+        guard shouldInsertExternally else {
+            insertionStatus = "Transcript kept in the Flow2 window"
+            appendLog("Insertion skipped: manual retry")
+            return
+        }
+
+        if shouldSkipExternalInsertion(for: targetApp) {
+            insertionStatus = "Transcript kept in the Flow2 window"
+            appendLog("Insertion skipped: targetApp=Flow2")
+            return
+        }
+
+        do {
+            let details = try await textInsertionService.insert(finalText, targetApp: targetApp)
+            insertionStatus = "Transcript inserted into the active app"
+            refreshAccessibilityStatus()
+            appendLog(details)
+        } catch {
+            insertionStatus = "Insertion failed. Check Accessibility/Input Monitoring permissions."
+            statusText = "Transcript ready, but insertion failed: \(error.localizedDescription)"
+            refreshAccessibilityStatus()
+            appendLog("Insertion failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func insertFailedHistoryItem(fileURL: URL, reason: String) {
+        transcriptHistory.insert(TranscriptHistoryItem.failedRecording(fileURL: fileURL, reason: reason), at: 0)
+        if transcriptHistory.count > 12 {
+            transcriptHistory.removeLast(transcriptHistory.count - 12)
+        }
+        saveHistory()
+        appendLog("Saved failed recording for manual retry: \(fileURL.lastPathComponent)")
+    }
+
+    private func updateFailedHistoryItem(_ id: UUID, fileURL: URL, reason: String) {
+        guard let index = transcriptHistory.firstIndex(where: { $0.id == id }) else { return }
+        transcriptHistory[index] = TranscriptHistoryItem.failedRecording(fileURL: fileURL, reason: reason, id: id, createdAt: transcriptHistory[index].createdAt)
+        saveHistory()
     }
 
     private func appendLog(_ message: String) {
@@ -312,6 +395,10 @@ final class AppViewModel: ObservableObject {
             transcriptHistory.removeLast(transcriptHistory.count - 12)
         }
 
+        saveHistory()
+    }
+
+    private func saveHistory() {
         do {
             try historyStore.save(transcriptHistory)
         } catch {

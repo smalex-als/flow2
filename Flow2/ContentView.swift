@@ -76,17 +76,27 @@ struct ContentView: View {
                             ForEach(Array(viewModel.transcriptHistory.enumerated()), id: \.element.id) { index, item in
                                 VStack(alignment: .leading, spacing: 10) {
                                     HStack(alignment: .top) {
-                                        Label(index == 0 ? "Latest" : item.createdAt.formatted(date: .omitted, time: .shortened),
-                                              systemImage: index == 0 ? "bolt.fill" : "clock")
+                                        Label(historyLabel(for: item, index: index),
+                                              systemImage: historyIcon(for: item, index: index))
                                             .font(.caption.weight(.semibold))
-                                            .foregroundStyle(index == 0 ? .primary : .secondary)
+                                            .foregroundStyle(historyColor(for: item, index: index))
 
                                         Spacer()
 
-                                        Button("Copy") {
-                                            viewModel.copyHistoryItem(item)
+                                        if item.isFailedRecording {
+                                            Button("Retry") {
+                                                Task {
+                                                    await viewModel.retryHistoryItem(item)
+                                                }
+                                            }
+                                            .buttonStyle(.borderless)
+                                            .disabled(viewModel.isBusy || viewModel.isRecording)
+                                        } else {
+                                            Button("Copy") {
+                                                viewModel.copyHistoryItem(item)
+                                            }
+                                            .buttonStyle(.borderless)
                                         }
-                                        .buttonStyle(.borderless)
 
                                         Button("Delete") {
                                             viewModel.deleteHistoryItem(item)
@@ -95,11 +105,25 @@ struct ContentView: View {
                                         .foregroundStyle(.red)
                                     }
 
-                                    Text(item.text)
-                                        .font(.system(size: 18))
-                                        .textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .lineSpacing(3)
+                                    if item.isFailedRecording {
+                                        if let fileName = item.failedRecordingFileName {
+                                            Text(fileName)
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+
+                                        Text(item.failureReason ?? "Recognition failed.")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .lineSpacing(3)
+                                    } else {
+                                        Text(item.text)
+                                            .font(.system(size: 18))
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .lineSpacing(3)
+                                    }
                                 }
                                 .padding(16)
                                 .background(Color(nsColor: .controlBackgroundColor))
@@ -250,5 +274,26 @@ struct ContentView: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func historyLabel(for item: TranscriptHistoryItem, index: Int) -> String {
+        if item.isFailedRecording {
+            return "Failed Recording"
+        }
+        return index == 0 ? "Latest" : item.createdAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    private func historyIcon(for item: TranscriptHistoryItem, index: Int) -> String {
+        if item.isFailedRecording {
+            return "exclamationmark.triangle.fill"
+        }
+        return index == 0 ? "bolt.fill" : "clock"
+    }
+
+    private func historyColor(for item: TranscriptHistoryItem, index: Int) -> Color {
+        if item.isFailedRecording {
+            return .orange
+        }
+        return index == 0 ? .primary : .secondary
     }
 }
