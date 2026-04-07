@@ -19,8 +19,8 @@ enum OpenAITranscriptionError: LocalizedError {
 
 final class OpenAITranscriptionClient {
     private static let maxAttempts = 3
-    private static let requestTimeout: TimeInterval = 15
-    private static let resourceTimeout: TimeInterval = 20
+    private static let requestTimeout: TimeInterval = 5
+    private static let resourceTimeout: TimeInterval = 8
 
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
