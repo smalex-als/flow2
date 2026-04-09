@@ -314,6 +314,11 @@ final class AppViewModel: ObservableObject {
             throw OpenAITranscriptionError.requestFailed("API key required")
         }
 
+        let targetAppName = targetApp?.localizedName ?? "none"
+        appendLog(
+            "Transcription flow started: file=\(fileURL.lastPathComponent), targetApp=\(targetAppName), shouldInsertExternally=\(shouldInsertExternally), replacingHistoryItem=\(replacingHistoryItemID != nil)"
+        )
+
         let client = OpenAITranscriptionClient()
         let rawText = try await client.transcribe(
             audioFileURL: fileURL,
@@ -322,6 +327,11 @@ final class AppViewModel: ObservableObject {
             onAttempt: { [weak self] attempt, total in
                 Task { @MainActor [weak self] in
                     self?.appendLog("Transcription attempt \(attempt)/\(total)")
+                }
+            },
+            onLog: { [weak self] message in
+                Task { @MainActor [weak self] in
+                    self?.appendLog(message)
                 }
             }
         )
