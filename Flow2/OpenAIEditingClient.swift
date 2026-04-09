@@ -36,8 +36,16 @@ final class OpenAIEditingClient {
         }
 
         let model: String
+        let serviceTier: String
         let temperature: Double
         let messages: [Message]
+
+        private enum CodingKeys: String, CodingKey {
+            case model
+            case serviceTier = "service_tier"
+            case temperature
+            case messages
+        }
     }
 
     private struct ResponseBody: Decodable {
@@ -162,6 +170,7 @@ final class OpenAIEditingClient {
         var request = request
         let body = RequestBody(
             model: model,
+            serviceTier: "priority",
             temperature: 0.2,
             messages: [
                 .init(role: "system", content: systemPrompt),
