@@ -21,13 +21,8 @@ enum OpenAIEditingError: LocalizedError {
 }
 
 final class OpenAIEditingClient {
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 180
-        configuration.timeoutIntervalForResource = 300
-        configuration.waitsForConnectivity = true
-        return URLSession(configuration: configuration)
-    }()
+    private static let requestTimeout: TimeInterval = 180
+    private static let resourceTimeout: TimeInterval = 300
 
     private struct RequestBody: Encodable {
         struct Message: Encodable {
@@ -182,7 +177,9 @@ final class OpenAIEditingClient {
 
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await Self.session.data(for: request)
+            let session = Self.makeSession()
+            defer { session.finishTasksAndInvalidate() }
+            (data, response) = try await session.data(for: request)
         } catch let error as URLError where error.code == .timedOut {
             throw OpenAIEditingError.timedOut
         } catch {
@@ -204,6 +201,17 @@ final class OpenAIEditingClient {
         }
 
         return content
+    }
+
+    private static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.waitsForConnectivity = false
+        configuration.httpMaximumConnectionsPerHost = 1
+        return URLSession(configuration: configuration)
     }
 
     private func containsCyrillic(_ text: String) -> Bool {

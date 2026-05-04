@@ -183,7 +183,8 @@ struct ContentView: View {
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
-                    footerInfoCard(title: "Model", value: viewModel.configuration.model, systemImage: "cpu")
+                    footerInfoCard(title: "Transcription", value: transcriptionModelLabel, systemImage: "waveform")
+                    footerInfoCard(title: "AI Editing", value: aiEditingModelLabel, systemImage: "sparkles")
                     footerInfoCard(title: "Hotkey", value: viewModel.hotKeyStatus, systemImage: "keyboard")
                     footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
                     footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
@@ -259,6 +260,23 @@ struct ContentView: View {
             .padding(.vertical, 6)
             .background(Color.secondary.opacity(0.1))
             .clipShape(Capsule())
+    }
+
+    private var aiEditingModelLabel: String {
+        guard viewModel.configuration.enableAIEditing else {
+            return "Off"
+        }
+
+        return viewModel.configuration.editingModel.rawValue
+    }
+
+    private var transcriptionModelLabel: String {
+        switch viewModel.configuration.transcriptionProvider {
+        case .openAI:
+            return viewModel.configuration.model
+        case .localWhisper:
+            return "Local Whisper: \(viewModel.configuration.localWhisperModel)"
+        }
     }
 
     private func footerInfoCard(title: String, value: String, systemImage: String) -> some View {

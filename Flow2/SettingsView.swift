@@ -5,6 +5,9 @@ struct SettingsView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var draftKey = ""
     @State private var draftModel = ""
+    @State private var draftTranscriptionProvider: TranscriptionProvider = .openAI
+    @State private var draftLocalWhisperExecutablePath = AppConfiguration.defaultLocalWhisperExecutablePath
+    @State private var draftLocalWhisperModel = AppConfiguration.defaultLocalWhisperModel
     @State private var draftEditingModel: EditingModelPreset = AppConfiguration.defaultEditingModel
     @State private var draftEnableAIEditing = false
     @State private var draftAutoTranslateRussianToEnglish = false
@@ -27,10 +30,26 @@ struct SettingsView: View {
                     SecureField("API key", text: $draftKey)
                         .textFieldStyle(.roundedBorder)
 
-                    TextField("Transcription model", text: $draftModel)
-                        .textFieldStyle(.roundedBorder)
+                    Picker("Speech-to-text engine", selection: $draftTranscriptionProvider) {
+                        ForEach(TranscriptionProvider.allCases) { provider in
+                            Text(provider.displayName)
+                                .tag(provider)
+                        }
+                    }
 
-                    Picker("AI editing model", selection: $draftEditingModel) {
+                    TextField("OpenAI speech-to-text model", text: $draftModel)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(draftTranscriptionProvider != .openAI)
+
+                    TextField("Local Whisper command", text: $draftLocalWhisperExecutablePath)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(draftTranscriptionProvider != .localWhisper)
+
+                    TextField("Local Whisper model", text: $draftLocalWhisperModel)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(draftTranscriptionProvider != .localWhisper)
+
+                    Picker("Post-processing model", selection: $draftEditingModel) {
                         ForEach(EditingModelPreset.allCases) { preset in
                             Text(preset.displayName)
                                 .tag(preset)
@@ -43,11 +62,15 @@ struct SettingsView: View {
                     Toggle("Auto-translate Russian to English", isOn: $draftAutoTranslateRussianToEnglish)
                         .disabled(!draftEnableAIEditing)
 
-                    Text("Recommended: `gpt-4o-mini-transcribe` for cost and speed, `gpt-4o-transcribe` for higher accuracy.")
+                    Text("Local Whisper runs on this Mac through the command-line tool and does not send audio to OpenAI.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("AI editing uses recent history as context and returns only the latest corrected message.")
+                    Text("OpenAI speech-to-text model: `gpt-4o-mini-transcribe` is the compact default; `gpt-4o-transcribe` is the higher accuracy option.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("Post-processing model: used only after transcription, for cleanup, translation, and preferred terms.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -107,6 +130,9 @@ struct SettingsView: View {
                                 let didSave = await viewModel.saveConfiguration(
                                     apiKey: draftKey,
                                     model: model,
+                                    transcriptionProvider: draftTranscriptionProvider,
+                                    localWhisperExecutablePath: draftLocalWhisperExecutablePath,
+                                    localWhisperModel: draftLocalWhisperModel,
                                     editingModel: draftEditingModel,
                                     enableAIEditing: draftEnableAIEditing,
                                     autoTranslateRussianToEnglish: draftAutoTranslateRussianToEnglish,
@@ -132,6 +158,9 @@ struct SettingsView: View {
             await viewModel.loadConfiguration()
             draftKey = viewModel.configuration.apiKey
             draftModel = viewModel.configuration.model
+            draftTranscriptionProvider = viewModel.configuration.transcriptionProvider
+            draftLocalWhisperExecutablePath = viewModel.configuration.localWhisperExecutablePath
+            draftLocalWhisperModel = viewModel.configuration.localWhisperModel
             draftEditingModel = viewModel.configuration.editingModel
             draftEnableAIEditing = viewModel.configuration.enableAIEditing
             draftAutoTranslateRussianToEnglish = viewModel.configuration.autoTranslateRussianToEnglish

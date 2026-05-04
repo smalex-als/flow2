@@ -12,23 +12,15 @@ enum OpenAITranscriptionError: LocalizedError {
         case .requestFailed(let message):
             return message
         case .timedOut(let attempts):
-            return "The transcription request timed out after \(attempts) attempts."
+            return "The transcription network request failed or timed out after \(attempts) attempts. Check network, VPN, or proxy connectivity, then retry from history."
         }
     }
 }
 
 final class OpenAITranscriptionClient {
     private static let maxAttempts = 3
-    private static let requestTimeout: TimeInterval = 5
-    private static let resourceTimeout: TimeInterval = 8
-
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = requestTimeout
-        configuration.timeoutIntervalForResource = resourceTimeout
-        configuration.waitsForConnectivity = true
-        return URLSession(configuration: configuration)
-    }()
+    private static let requestTimeout: TimeInterval = 60
+    private static let resourceTimeout: TimeInterval = 180
 
     private struct AudioResponse: Decodable {
         let text: String
@@ -47,7 +39,7 @@ final class OpenAITranscriptionClient {
         let body = try makeMultipartBody(audioFileURL: audioFileURL, model: model, boundary: boundary)
 
         onLog?(
-            "Transcription request prepared: file=\(audioFileURL.lastPathComponent), \(fileDescription), bodyBytes=\(body.count), model=\(model), requestTimeout=\(Int(Self.requestTimeout))s, resourceTimeout=\(Int(Self.resourceTimeout))s"
+            "Transcription request prepared: file=\(audioFileURL.lastPathComponent), \(fileDescription), bodyBytes=\(body.count), model=\(model), requestTimeout=\(Int(Self.requestTimeout))s, resourceTimeout=\(Int(Self.resourceTimeout))s, transport=freshEphemeralURLSession"
         )
 
         for attempt in 1 ... Self.maxAttempts {
@@ -61,25 +53,33 @@ final class OpenAITranscriptionClient {
 
             let (data, response): (Data, URLResponse)
             do {
-                (data, response) = try await Self.session.upload(for: request, from: body)
-                let elapsed = Self.formatElapsed(since: startedAt)
+                let session = Self.makeSession()
+                defer { session.finishTasksAndInvalidate() }
+                (data, response) = try await session.upload(for: request, from: body)
+                let elapsed = Self.formatElapsed(Date().timeIntervalSince(startedAt))
                 onLog?("Transcription upload finished: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(elapsed), responseBytes=\(data.count)")
             } catch let error as URLError where Self.shouldRetry(error) && attempt < Self.maxAttempts {
+                let elapsedSeconds = Date().timeIntervalSince(startedAt)
+                let errorDescription = Self.describe(error: error)
                 lastRetryableError = error
                 onLog?(
-                    "Transcription attempt failed, retrying: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(since: startedAt)), \(Self.describe(error: error))"
+                    "Transcription attempt failed, retrying: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(elapsedSeconds)), \(errorDescription)"
                 )
                 try? await Task.sleep(for: Self.retryDelay(for: attempt))
                 continue
             } catch let error as URLError where Self.shouldRetry(error) {
+                let elapsedSeconds = Date().timeIntervalSince(startedAt)
+                let errorDescription = Self.describe(error: error)
                 lastRetryableError = error
                 onLog?(
-                    "Transcription attempt failed, no retries left: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(since: startedAt)), \(Self.describe(error: error))"
+                    "Transcription attempt failed, no retries left: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(elapsedSeconds)), \(errorDescription)"
                 )
                 break
             } catch {
+                let elapsedSeconds = Date().timeIntervalSince(startedAt)
+                let errorDescription = Self.describe(error: error)
                 onLog?(
-                    "Transcription attempt failed with non-retryable error: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(since: startedAt)), \(Self.describe(error: error))"
+                    "Transcription attempt failed with non-retryable error: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(elapsedSeconds)), \(errorDescription)"
                 )
                 throw error
             }
@@ -101,12 +101,13 @@ final class OpenAITranscriptionClient {
                 let decoded = try JSONDecoder().decode(AudioResponse.self, from: data)
                 let finalText = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 onLog?(
-                    "Transcription succeeded: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(since: startedAt)), transcriptChars=\(finalText.count)"
+                    "Transcription succeeded: attempt=\(attempt)/\(Self.maxAttempts), elapsed=\(Self.formatElapsed(Date().timeIntervalSince(startedAt))), transcriptChars=\(finalText.count)"
                 )
                 return finalText
             } catch {
+                let errorDescription = Self.describe(error: error)
                 onLog?(
-                    "Transcription decode failed: attempt=\(attempt)/\(Self.maxAttempts), \(Self.describe(error: error)), body=\(Self.summarizeResponseBody(data))"
+                    "Transcription decode failed: attempt=\(attempt)/\(Self.maxAttempts), \(errorDescription), body=\(Self.summarizeResponseBody(data))"
                 )
                 throw error
             }
@@ -130,7 +131,7 @@ final class OpenAITranscriptionClient {
 
         body.append(string: "--\(boundary)\r\n")
         body.append(string: "Content-Disposition: form-data; name=\"file\"; filename=\"\(audioFileURL.lastPathComponent)\"\r\n")
-        body.append(string: "Content-Type: audio/m4a\r\n\r\n")
+        body.append(string: "Content-Type: \(mimeType(for: audioFileURL))\r\n\r\n")
         body.append(audioData)
         body.append(string: "\r\n")
 
@@ -138,18 +139,52 @@ final class OpenAITranscriptionClient {
         return body
     }
 
+    private static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.waitsForConnectivity = false
+        configuration.httpMaximumConnectionsPerHost = 1
+        return URLSession(configuration: configuration)
+    }
+
     private static func shouldRetry(_ error: URLError) -> Bool {
-        error.code == .timedOut || error.code == .networkConnectionLost || error.code == .cannotConnectToHost
+        switch error.code {
+        case .timedOut,
+             .networkConnectionLost,
+             .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .notConnectedToInternet:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "wav":
+            return "audio/wav"
+        case "mp3":
+            return "audio/mpeg"
+        case "m4a":
+            return "audio/m4a"
+        default:
+            return "application/octet-stream"
+        }
     }
 
     private static func retryDelay(for attempt: Int) -> Duration {
         switch attempt {
         case 1:
-            return .milliseconds(300)
-        case 2:
-            return .milliseconds(700)
-        default:
             return .seconds(1)
+        case 2:
+            return .seconds(3)
+        default:
+            return .seconds(5)
         }
     }
 
@@ -199,8 +234,8 @@ final class OpenAITranscriptionClient {
         return "\(prefix)..."
     }
 
-    private static func formatElapsed(since startedAt: Date) -> String {
-        String(format: "%.2fs", Date().timeIntervalSince(startedAt))
+    private static func formatElapsed(_ seconds: TimeInterval) -> String {
+        String(format: "%.2fs", seconds)
     }
 
     private static func format(date: Date) -> String {
