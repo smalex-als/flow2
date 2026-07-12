@@ -32,12 +32,14 @@ final class OpenAIEditingClient {
 
         let model: String
         let serviceTier: String
+        let reasoningEffort: String
         let temperature: Double
         let messages: [Message]
 
         private enum CodingKeys: String, CodingKey {
             case model
             case serviceTier = "service_tier"
+            case reasoningEffort = "reasoning_effort"
             case temperature
             case messages
         }
@@ -166,6 +168,7 @@ final class OpenAIEditingClient {
         let body = RequestBody(
             model: model,
             serviceTier: "priority",
+            reasoningEffort: "none",
             temperature: 0.2,
             messages: [
                 .init(role: "system", content: systemPrompt),

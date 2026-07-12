@@ -20,20 +20,46 @@ enum HotKeyPreset: String, Codable, CaseIterable, Identifiable {
 }
 
 enum EditingModelPreset: String, Codable, CaseIterable, Identifiable {
+    case gpt56Luna = "gpt-5.6-luna"
+    case gpt56Terra = "gpt-5.6-terra"
+    case gpt56Sol = "gpt-5.6-sol"
     case gpt54Nano = "gpt-5.4-nano"
     case gpt54Mini = "gpt-5.4-mini"
     case gpt54 = "gpt-5.4"
 
     var id: String { rawValue }
 
+    static var allCases: [EditingModelPreset] {
+        [.gpt56Luna, .gpt56Terra, .gpt56Sol]
+    }
+
     var displayName: String {
         switch self {
+        case .gpt56Luna:
+            return "GPT-5.6 Luna"
+        case .gpt56Terra:
+            return "GPT-5.6 Terra"
+        case .gpt56Sol:
+            return "GPT-5.6 Sol"
         case .gpt54Nano:
-            return "GPT-5.4 Nano"
+            return "GPT-5.4 Nano (Legacy)"
         case .gpt54Mini:
-            return "GPT-5.4 Mini"
+            return "GPT-5.4 Mini (Legacy)"
         case .gpt54:
-            return "GPT-5.4"
+            return "GPT-5.4 (Legacy)"
+        }
+    }
+
+    var currentEquivalent: EditingModelPreset {
+        switch self {
+        case .gpt54Nano:
+            return .gpt56Luna
+        case .gpt54Mini:
+            return .gpt56Terra
+        case .gpt54:
+            return .gpt56Sol
+        case .gpt56Luna, .gpt56Terra, .gpt56Sol:
+            return self
         }
     }
 }
@@ -75,11 +101,11 @@ struct AppConfiguration: Codable {
         case launchAtLogin
     }
 
-    static let currentConfigVersion = 2
+    static let currentConfigVersion = 3
     static let defaultModel = "gpt-4o-mini-transcribe"
     static let defaultLocalWhisperExecutablePath = "/opt/homebrew/bin/whisper"
     static let defaultLocalWhisperModel = "base"
-    static let defaultEditingModel: EditingModelPreset = .gpt54Nano
+    static let defaultEditingModel: EditingModelPreset = .gpt56Luna
 
     var configVersion = Self.currentConfigVersion
     var apiKey = ""
@@ -99,7 +125,8 @@ struct AppConfiguration: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        configVersion = try container.decodeIfPresent(Int.self, forKey: .configVersion) ?? Self.currentConfigVersion
+        let decodedConfigVersion = try container.decodeIfPresent(Int.self, forKey: .configVersion) ?? 1
+        configVersion = Self.currentConfigVersion
         apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
 
         let decodedModel = try container.decodeIfPresent(String.self, forKey: .model)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -113,7 +140,8 @@ struct AppConfiguration: Codable {
         let decodedWhisperModel = try container.decodeIfPresent(String.self, forKey: .localWhisperModel)?.trimmingCharacters(in: .whitespacesAndNewlines)
         localWhisperModel = (decodedWhisperModel?.isEmpty == false) ? decodedWhisperModel! : Self.defaultLocalWhisperModel
 
-        editingModel = try container.decodeIfPresent(EditingModelPreset.self, forKey: .editingModel) ?? Self.defaultEditingModel
+        let decodedEditingModel = try container.decodeIfPresent(EditingModelPreset.self, forKey: .editingModel) ?? Self.defaultEditingModel
+        editingModel = decodedConfigVersion < 3 ? decodedEditingModel.currentEquivalent : decodedEditingModel
         enableAIEditing = try container.decodeIfPresent(Bool.self, forKey: .enableAIEditing) ?? false
         autoTranslateRussianToEnglish = try container.decodeIfPresent(Bool.self, forKey: .autoTranslateRussianToEnglish) ?? false
         hotKeyPreset = try container.decodeIfPresent(HotKeyPreset.self, forKey: .hotKeyPreset) ?? .controlSpace

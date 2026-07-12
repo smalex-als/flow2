@@ -74,7 +74,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Available GPT-5 post-processing options: Nano, Mini, and the full GPT-5.4 model.")
+                    Text("GPT-5.6 post-processing options: Luna for speed and volume, Terra for balance, and Sol for maximum quality.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 

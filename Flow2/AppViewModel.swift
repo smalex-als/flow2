@@ -40,13 +40,22 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     }
 }
 
+enum AppWorkflowPhase: Equatable {
+    case idle
+    case startingRecording
+    case recording
+    case finalizingRecording
+    case transcribing
+    case editing
+    case inserting
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published var configuration = AppConfiguration()
     @Published var transcript = ""
     @Published var statusText = "Ready"
-    @Published var isRecording = false
-    @Published var isBusy = false
+    @Published private(set) var workflowPhase: AppWorkflowPhase = .idle
     @Published var isShowingMissingKeyAlert = false
     @Published var hotKeyStatus = "Hotkey not registered"
     @Published var insertionStatus = "Auto-paste after transcription is enabled"
@@ -62,6 +71,20 @@ final class AppViewModel: ObservableObject {
     private let launchAtLoginService = LaunchAtLoginService()
     private let recordingIndicator = RecordingIndicatorController()
     private var insertionTargetApp: NSRunningApplication?
+    private var stopRequestedDuringRecordingStart = false
+
+    var isRecording: Bool {
+        workflowPhase == .startingRecording || workflowPhase == .recording
+    }
+
+    var isBusy: Bool {
+        switch workflowPhase {
+        case .finalizingRecording, .transcribing, .editing, .inserting:
+            return true
+        case .idle, .startingRecording, .recording:
+            return false
+        }
+    }
 
     func loadConfiguration() async {
         do {
@@ -168,20 +191,21 @@ final class AppViewModel: ObservableObject {
     }
 
     func toggleRecording() async {
-        if isRecording {
+        switch workflowPhase {
+        case .startingRecording, .recording:
             await stopRecording()
-        } else {
+        case .idle:
             await startRecording()
+        case .finalizingRecording, .transcribing, .editing, .inserting:
+            break
         }
     }
 
     func startRecordingFromHotKey() async {
-        guard !isRecording else { return }
         await startRecording()
     }
 
     func stopRecordingFromHotKey() async {
-        guard isRecording else { return }
         await stopRecording()
     }
 
@@ -220,7 +244,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func retryHistoryItem(_ item: TranscriptHistoryItem) async {
-        guard !isBusy, !isRecording else { return }
+        guard workflowPhase == .idle else { return }
         guard let path = item.failedRecordingFilePath else { return }
 
         let fileURL = URL(fileURLWithPath: path)
@@ -231,7 +255,8 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        isBusy = true
+        workflowPhase = .transcribing
+        defer { workflowPhase = .idle }
         statusText = "Retrying \(fileURL.lastPathComponent)..."
         appendLog("Manual transcription retry started: \(fileURL.lastPathComponent)")
 
@@ -247,8 +272,6 @@ final class AppViewModel: ObservableObject {
             statusText = "Failed: \(error.localizedDescription)"
             appendLog("Manual transcription retry failed: \(error.localizedDescription)")
         }
-
-        isBusy = false
     }
 
     func copyDebugLog() {
@@ -278,34 +301,58 @@ final class AppViewModel: ObservableObject {
     }
 
     private func startRecording() async {
-        guard !isBusy else { return }
+        guard workflowPhase == .idle else { return }
+
+        workflowPhase = .startingRecording
+        stopRequestedDuringRecordingStart = false
+        statusText = "Starting recording..."
+        insertionTargetApp = NSWorkspace.shared.frontmostApplication
 
         do {
-            insertionTargetApp = NSWorkspace.shared.frontmostApplication
             let url = try await recorder.start()
-            isRecording = true
-            recordingIndicator.show()
+            workflowPhase = .recording
             transcript = ""
             statusText = "Recording to \(url.lastPathComponent)"
             let targetAppName = insertionTargetApp?.localizedName ?? "unknown"
             appendLog("Recording started: \(url.lastPathComponent), targetApp=\(targetAppName)")
+
+            if stopRequestedDuringRecordingStart {
+                appendLog("Recording startup completed after stop was requested; stopping immediately")
+                await stopRecording()
+                return
+            }
+
+            recordingIndicator.show()
         } catch {
+            workflowPhase = .idle
+            insertionTargetApp = nil
+            stopRequestedDuringRecordingStart = false
             statusText = "Failed to start recording: \(error.localizedDescription)"
             appendLog("Recording failed to start: \(error.localizedDescription)")
         }
     }
 
     private func stopRecording() async {
-        guard isRecording else { return }
-        isBusy = true
-        isRecording = false
+        if workflowPhase == .startingRecording {
+            stopRequestedDuringRecordingStart = true
+            statusText = "Stopping recording as soon as it starts..."
+            appendLog("Stop requested while recording was starting")
+            return
+        }
+
+        guard workflowPhase == .recording else { return }
+        workflowPhase = .finalizingRecording
         recordingIndicator.hide()
         var recordedFileURL: URL?
+        defer {
+            insertionTargetApp = nil
+            stopRequestedDuringRecordingStart = false
+            workflowPhase = .idle
+        }
 
         do {
             let fileURL = try await recorder.stop()
             recordedFileURL = fileURL
-            statusText = "Uploading audio..."
             appendLog("Recording stopped: \(fileURL.lastPathComponent)")
             try await transcribeRecordedFile(fileURL: fileURL, targetApp: insertionTargetApp, shouldInsertExternally: true)
         } catch {
@@ -315,12 +362,11 @@ final class AppViewModel: ObservableObject {
             statusText = "Failed: \(error.localizedDescription)"
             appendLog("Stop/transcribe flow failed: \(error.localizedDescription)")
         }
-
-        insertionTargetApp = nil
-        isBusy = false
     }
 
     private func transcribeRecordedFile(fileURL: URL, targetApp: NSRunningApplication?, shouldInsertExternally: Bool, replacingHistoryItemID: UUID? = nil) async throws {
+        workflowPhase = .transcribing
+        statusText = configuration.transcriptionProvider == .openAI ? "Uploading and transcribing audio..." : "Transcribing audio locally..."
         let apiKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let needsAPIKey = configuration.transcriptionProvider == .openAI || configuration.enableAIEditing
         guard !needsAPIKey || !apiKey.isEmpty else {
@@ -376,6 +422,7 @@ final class AppViewModel: ObservableObject {
         }
 
         let finalText = await autoEditTranscriptIfNeeded(rawText, apiKey: apiKey)
+        workflowPhase = .transcribing
         transcript = finalText
         statusText = "Transcription complete"
         addTranscriptToHistory(finalText)
@@ -392,8 +439,11 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        workflowPhase = .inserting
+        statusText = "Inserting transcript..."
         do {
             let details = try await textInsertionService.insert(finalText, targetApp: targetApp)
+            statusText = "Transcription complete"
             insertionStatus = "Transcript inserted into the active app"
             refreshAccessibilityStatus()
             appendLog(details)
@@ -464,6 +514,8 @@ final class AppViewModel: ObservableObject {
         guard configuration.enableAIEditing else {
             return trimmed
         }
+        workflowPhase = .editing
+        statusText = "Editing transcript..."
         let shouldTranslateToEnglish = configuration.autoTranslateRussianToEnglish && containsRussianText(trimmed)
 
         let previousMessages = transcriptHistory

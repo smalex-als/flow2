@@ -33,7 +33,7 @@
 
 ### 2. Optional AI post-processing
 
-- Default model: `gpt-5.4-nano`
+- Default model: `gpt-5.6-luna`
 - Uses only the latest message plus a limited recent-history context
 - Returns only the corrected latest message
 - Can optionally force English output when the raw transcript contains Cyrillic
