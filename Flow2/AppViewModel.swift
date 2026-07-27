@@ -40,6 +40,22 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     }
 }
 
+enum TranslationBehavior: Equatable {
+    /// Translate only when the "Auto-translate Russian to English" setting is on.
+    case followSettings
+    /// Never translate, even when the setting is on: keep the spoken language.
+    case keepOriginalLanguage
+
+    var shortDescription: String {
+        switch self {
+        case .followSettings:
+            return "with translation"
+        case .keepOriginalLanguage:
+            return "without translation"
+        }
+    }
+}
+
 enum AppWorkflowPhase: Equatable {
     case idle
     case startingRecording
@@ -72,6 +88,7 @@ final class AppViewModel: ObservableObject {
     private let recordingIndicator = RecordingIndicatorController()
     private var insertionTargetApp: NSRunningApplication?
     private var stopRequestedDuringRecordingStart = false
+    private var activeTranslationBehavior: TranslationBehavior = .followSettings
 
     var isRecording: Bool {
         workflowPhase == .startingRecording || workflowPhase == .recording
@@ -116,6 +133,8 @@ final class AppViewModel: ObservableObject {
         next.autoTranslateRussianToEnglish = configuration.autoTranslateRussianToEnglish
         next.preferredTerms = configuration.preferredTerms
         next.hotKeyPreset = configuration.hotKeyPreset
+        next.enableNoTranslateHotKey = configuration.enableNoTranslateHotKey
+        next.noTranslateHotKeyPreset = configuration.noTranslateHotKeyPreset
         next.transcriptionProvider = configuration.transcriptionProvider
         next.localWhisperExecutablePath = configuration.localWhisperExecutablePath
         next.localWhisperModel = configuration.localWhisperModel
@@ -130,7 +149,7 @@ final class AppViewModel: ObservableObject {
         _ = await saveConfiguration(next)
     }
 
-    func saveConfiguration(apiKey: String, model: String, transcriptionProvider: TranscriptionProvider, localWhisperExecutablePath: String, localWhisperModel: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
+    func saveConfiguration(apiKey: String, model: String, transcriptionProvider: TranscriptionProvider, localWhisperExecutablePath: String, localWhisperModel: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, enableNoTranslateHotKey: Bool, noTranslateHotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
         var next = configuration
         next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         next.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -151,6 +170,10 @@ final class AppViewModel: ObservableObject {
         next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
         next.preferredTerms = preferredTerms
         next.hotKeyPreset = hotKeyPreset
+        next.enableNoTranslateHotKey = enableNoTranslateHotKey
+        next.noTranslateHotKeyPreset = noTranslateHotKeyPreset == hotKeyPreset
+            ? AppConfiguration.fallbackNoTranslateHotKeyPreset(avoiding: hotKeyPreset)
+            : noTranslateHotKeyPreset
         next.launchAtLogin = launchAtLogin
 
         return await saveConfiguration(next)
@@ -195,14 +218,14 @@ final class AppViewModel: ObservableObject {
         case .startingRecording, .recording:
             await stopRecording()
         case .idle:
-            await startRecording()
+            await startRecording(translationBehavior: .followSettings)
         case .finalizingRecording, .transcribing, .editing, .inserting:
             break
         }
     }
 
-    func startRecordingFromHotKey() async {
-        await startRecording()
+    func startRecordingFromHotKey(translationBehavior: TranslationBehavior) async {
+        await startRecording(translationBehavior: translationBehavior)
     }
 
     func stopRecordingFromHotKey() async {
@@ -300,11 +323,12 @@ final class AppViewModel: ObservableObject {
         appendLog("Revealed current app bundle in Finder")
     }
 
-    private func startRecording() async {
+    private func startRecording(translationBehavior: TranslationBehavior) async {
         guard workflowPhase == .idle else { return }
 
         workflowPhase = .startingRecording
         stopRequestedDuringRecordingStart = false
+        activeTranslationBehavior = translationBehavior
         statusText = "Starting recording..."
         insertionTargetApp = NSWorkspace.shared.frontmostApplication
 
@@ -314,7 +338,7 @@ final class AppViewModel: ObservableObject {
             transcript = ""
             statusText = "Recording to \(url.lastPathComponent)"
             let targetAppName = insertionTargetApp?.localizedName ?? "unknown"
-            appendLog("Recording started: \(url.lastPathComponent), targetApp=\(targetAppName)")
+            appendLog("Recording started: \(url.lastPathComponent), targetApp=\(targetAppName), translationBehavior=\(translationBehavior.shortDescription)")
 
             if stopRequestedDuringRecordingStart {
                 appendLog("Recording startup completed after stop was requested; stopping immediately")
@@ -327,6 +351,7 @@ final class AppViewModel: ObservableObject {
             workflowPhase = .idle
             insertionTargetApp = nil
             stopRequestedDuringRecordingStart = false
+            activeTranslationBehavior = .followSettings
             statusText = "Failed to start recording: \(error.localizedDescription)"
             appendLog("Recording failed to start: \(error.localizedDescription)")
         }
@@ -347,6 +372,7 @@ final class AppViewModel: ObservableObject {
         defer {
             insertionTargetApp = nil
             stopRequestedDuringRecordingStart = false
+            activeTranslationBehavior = .followSettings
             workflowPhase = .idle
         }
 
@@ -516,7 +542,9 @@ final class AppViewModel: ObservableObject {
         }
         workflowPhase = .editing
         statusText = "Editing transcript..."
-        let shouldTranslateToEnglish = configuration.autoTranslateRussianToEnglish && containsRussianText(trimmed)
+        let shouldTranslateToEnglish = activeTranslationBehavior == .followSettings
+            && configuration.autoTranslateRussianToEnglish
+            && containsRussianText(trimmed)
 
         let previousMessages = transcriptHistory
             .prefix(8)

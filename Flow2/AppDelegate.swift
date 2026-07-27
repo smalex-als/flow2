@@ -3,7 +3,7 @@ import Carbon
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var hotKeyManager: GlobalHotKeyManager?
+    private var hotKeyManagers: [GlobalHotKeyManager] = []
     private weak var viewModel: AppViewModel?
     private var configurationObserver: NSObjectProtocol?
 
@@ -31,29 +31,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateHotKeyRegistration() {
         guard let viewModel else { return }
 
-        hotKeyManager = nil
+        hotKeyManagers = []
 
-        let manager = GlobalHotKeyManager(preset: viewModel.configuration.hotKeyPreset)
-        manager.onHotKeyPressed = { [weak viewModel] in
-            guard let viewModel else { return }
-            Task { @MainActor in
-                await viewModel.startRecordingFromHotKey()
-            }
-        }
-        manager.onHotKeyReleased = { [weak viewModel] in
-            guard let viewModel else { return }
-            Task { @MainActor in
-                await viewModel.stopRecordingFromHotKey()
-            }
+        let configuration = viewModel.configuration
+        var requests: [(id: UInt32, preset: HotKeyPreset, behavior: TranslationBehavior)] = [
+            (1, configuration.hotKeyPreset, .followSettings)
+        ]
+
+        if configuration.enableNoTranslateHotKey, configuration.noTranslateHotKeyPreset != configuration.hotKeyPreset {
+            requests.append((2, configuration.noTranslateHotKeyPreset, .keepOriginalLanguage))
         }
 
-        do {
-            try manager.register()
-            viewModel.updateHotKeyStatus("Hotkey ready: \(viewModel.configuration.hotKeyPreset.displayName)")
-            hotKeyManager = manager
-        } catch {
-            viewModel.updateHotKeyStatus("Hotkey registration failed: \(error.localizedDescription)")
+        var statusParts: [String] = []
+
+        for request in requests {
+            let manager = GlobalHotKeyManager(preset: request.preset, hotKeyID: request.id)
+            manager.onHotKeyPressed = { [weak viewModel] in
+                guard let viewModel else { return }
+                Task { @MainActor in
+                    await viewModel.startRecordingFromHotKey(translationBehavior: request.behavior)
+                }
+            }
+            manager.onHotKeyReleased = { [weak viewModel] in
+                guard let viewModel else { return }
+                Task { @MainActor in
+                    await viewModel.stopRecordingFromHotKey()
+                }
+            }
+
+            do {
+                try manager.register()
+                hotKeyManagers.append(manager)
+                statusParts.append("\(request.preset.displayName) (\(request.behavior.shortDescription))")
+            } catch {
+                statusParts.append("\(request.preset.displayName) failed: \(error.localizedDescription)")
+            }
         }
+
+        viewModel.updateHotKeyStatus(statusParts.joined(separator: " · "))
     }
 }
 
@@ -76,12 +91,14 @@ final class GlobalHotKeyManager {
     var onHotKeyReleased: (() -> Void)?
 
     private let preset: HotKeyPreset
+    private let hotKeyID: UInt32
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
     private var isPressed = false
 
-    init(preset: HotKeyPreset) {
+    init(preset: HotKeyPreset, hotKeyID: UInt32) {
         self.preset = preset
+        self.hotKeyID = hotKeyID
     }
 
     deinit {
@@ -112,10 +129,10 @@ final class GlobalHotKeyManager {
             throw GlobalHotKeyError.eventHandlerInstallFailed(installStatus)
         }
 
-        let hotKeyID = EventHotKeyID(signature: OSType(0x464C4F57), id: UInt32(1))
+        let eventHotKeyID = EventHotKeyID(signature: OSType(0x464C4F57), id: hotKeyID)
         let registerStatus = RegisterEventHotKey(UInt32(kVK_Space),
                                                  UInt32(carbonModifiers(for: preset)),
-                                                 hotKeyID,
+                                                 eventHotKeyID,
                                                  GetApplicationEventTarget(),
                                                  0,
                                                  &hotKeyRef)
@@ -128,16 +145,16 @@ final class GlobalHotKeyManager {
     private func handleHotKeyEvent(_ event: EventRef?) {
         guard let event else { return }
 
-        var hotKeyID = EventHotKeyID()
+        var receivedHotKeyID = EventHotKeyID()
         let status = GetEventParameter(event,
                                        EventParamName(kEventParamDirectObject),
                                        EventParamType(typeEventHotKeyID),
                                        nil,
                                        MemoryLayout<EventHotKeyID>.size,
                                        nil,
-                                       &hotKeyID)
+                                       &receivedHotKeyID)
 
-        guard status == noErr, hotKeyID.id == 1 else { return }
+        guard status == noErr, receivedHotKeyID.id == hotKeyID else { return }
 
         let kind = GetEventKind(event)
         switch kind {

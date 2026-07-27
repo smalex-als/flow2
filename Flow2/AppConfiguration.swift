@@ -98,6 +98,8 @@ struct AppConfiguration: Codable {
         case preferredTerms
         case pronunciationDictionary
         case hotKeyPreset
+        case enableNoTranslateHotKey
+        case noTranslateHotKeyPreset
         case launchAtLogin
     }
 
@@ -106,6 +108,7 @@ struct AppConfiguration: Codable {
     static let defaultLocalWhisperExecutablePath = "/opt/homebrew/bin/whisper"
     static let defaultLocalWhisperModel = "base"
     static let defaultEditingModel: EditingModelPreset = .gpt56Luna
+    static let defaultNoTranslateHotKeyPreset: HotKeyPreset = .shiftCommandSpace
 
     var configVersion = Self.currentConfigVersion
     var apiKey = ""
@@ -118,6 +121,8 @@ struct AppConfiguration: Codable {
     var autoTranslateRussianToEnglish = false
     var preferredTerms: [String] = []
     var hotKeyPreset: HotKeyPreset = .controlSpace
+    var enableNoTranslateHotKey = false
+    var noTranslateHotKeyPreset: HotKeyPreset = Self.defaultNoTranslateHotKeyPreset
     var launchAtLogin = false
 
     init() {}
@@ -145,6 +150,14 @@ struct AppConfiguration: Codable {
         enableAIEditing = try container.decodeIfPresent(Bool.self, forKey: .enableAIEditing) ?? false
         autoTranslateRussianToEnglish = try container.decodeIfPresent(Bool.self, forKey: .autoTranslateRussianToEnglish) ?? false
         hotKeyPreset = try container.decodeIfPresent(HotKeyPreset.self, forKey: .hotKeyPreset) ?? .controlSpace
+        enableNoTranslateHotKey = try container.decodeIfPresent(Bool.self, forKey: .enableNoTranslateHotKey) ?? false
+
+        let decodedNoTranslatePreset = try container.decodeIfPresent(HotKeyPreset.self, forKey: .noTranslateHotKeyPreset)
+            ?? Self.defaultNoTranslateHotKeyPreset
+        noTranslateHotKeyPreset = decodedNoTranslatePreset == hotKeyPreset
+            ? Self.fallbackNoTranslateHotKeyPreset(avoiding: hotKeyPreset)
+            : decodedNoTranslatePreset
+
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
 
         if let decodedPreferredTerms = try container.decodeIfPresent([String].self, forKey: .preferredTerms) {
@@ -168,7 +181,13 @@ struct AppConfiguration: Codable {
         try container.encode(autoTranslateRussianToEnglish, forKey: .autoTranslateRussianToEnglish)
         try container.encode(preferredTerms, forKey: .preferredTerms)
         try container.encode(hotKeyPreset, forKey: .hotKeyPreset)
+        try container.encode(enableNoTranslateHotKey, forKey: .enableNoTranslateHotKey)
+        try container.encode(noTranslateHotKeyPreset, forKey: .noTranslateHotKeyPreset)
         try container.encode(launchAtLogin, forKey: .launchAtLogin)
+    }
+
+    static func fallbackNoTranslateHotKeyPreset(avoiding preset: HotKeyPreset) -> HotKeyPreset {
+        HotKeyPreset.allCases.first { $0 != preset } ?? preset
     }
 
     private static func normalizedPreferredTerms(_ terms: [String]) -> [String] {

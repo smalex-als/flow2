@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var draftAutoTranslateRussianToEnglish = false
     @State private var draftPreferredTerms = ""
     @State private var draftHotKeyPreset: HotKeyPreset = .controlSpace
+    @State private var draftEnableNoTranslateHotKey = false
+    @State private var draftNoTranslateHotKeyPreset: HotKeyPreset = AppConfiguration.defaultNoTranslateHotKeyPreset
     @State private var draftLaunchAtLogin = false
     @State private var didLoadDrafts = false
 
@@ -105,12 +107,31 @@ struct SettingsView: View {
                 }
 
                 Section("Hotkey") {
-                    Picker("Push-to-talk shortcut", selection: $draftHotKeyPreset) {
+                    Picker("Dictation with translation", selection: $draftHotKeyPreset) {
                         ForEach(HotKeyPreset.allCases) { preset in
                             Text(preset.displayName)
                                 .tag(preset)
                         }
                     }
+                    .onChange(of: draftHotKeyPreset) { _, newValue in
+                        if draftNoTranslateHotKeyPreset == newValue {
+                            draftNoTranslateHotKeyPreset = AppConfiguration.fallbackNoTranslateHotKeyPreset(avoiding: newValue)
+                        }
+                    }
+
+                    Toggle("Enable dictation without translation", isOn: $draftEnableNoTranslateHotKey)
+
+                    Picker("Dictation without translation", selection: $draftNoTranslateHotKeyPreset) {
+                        ForEach(HotKeyPreset.allCases.filter { $0 != draftHotKeyPreset }) { preset in
+                            Text(preset.displayName)
+                                .tag(preset)
+                        }
+                    }
+                    .disabled(!draftEnableNoTranslateHotKey)
+
+                    Text("Dictation with translation follows the translation setting above. Dictation without translation always returns the transcript in the language you spoke.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Startup") {
@@ -138,6 +159,8 @@ struct SettingsView: View {
                                     autoTranslateRussianToEnglish: draftAutoTranslateRussianToEnglish,
                                     preferredTerms: parsePreferredTerms(draftPreferredTerms),
                                     hotKeyPreset: draftHotKeyPreset,
+                                    enableNoTranslateHotKey: draftEnableNoTranslateHotKey,
+                                    noTranslateHotKeyPreset: draftNoTranslateHotKeyPreset,
                                     launchAtLogin: draftLaunchAtLogin
                                 )
 
@@ -166,6 +189,8 @@ struct SettingsView: View {
             draftAutoTranslateRussianToEnglish = viewModel.configuration.autoTranslateRussianToEnglish
             draftPreferredTerms = serializePreferredTerms(viewModel.configuration.preferredTerms)
             draftHotKeyPreset = viewModel.configuration.hotKeyPreset
+            draftEnableNoTranslateHotKey = viewModel.configuration.enableNoTranslateHotKey
+            draftNoTranslateHotKeyPreset = viewModel.configuration.noTranslateHotKeyPreset
             draftLaunchAtLogin = viewModel.configuration.launchAtLogin
             didLoadDrafts = true
         }

@@ -38,7 +38,7 @@ private struct MenuBarContentView: View {
             Text(viewModel.isRecording ? "Recording..." : viewModel.statusText)
                 .font(.headline)
 
-            Text(viewModel.configuration.hotKeyPreset.displayName)
+            Text(hotKeyHint)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -74,6 +74,15 @@ private struct MenuBarContentView: View {
         .padding(14)
         .frame(width: 340)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var hotKeyHint: String {
+        let configuration = viewModel.configuration
+        guard configuration.enableNoTranslateHotKey, configuration.noTranslateHotKeyPreset != configuration.hotKeyPreset else {
+            return configuration.hotKeyPreset.displayName
+        }
+
+        return "\(configuration.hotKeyPreset.displayName) with translation · \(configuration.noTranslateHotKeyPreset.displayName) without translation"
     }
 
     private var aiEditingBinding: Binding<Bool> {
