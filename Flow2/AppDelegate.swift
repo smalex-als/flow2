@@ -118,11 +118,13 @@ final class GlobalHotKeyManager {
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
         ]
 
+        // Every manager installs its own handler on the shared application target, and Carbon stops
+        // walking the handler chain as soon as one returns noErr. Events for other hotkey IDs must
+        // report eventNotHandledErr, otherwise the last installed handler swallows them all.
         let installStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
-            guard let userData else { return noErr }
+            guard let userData else { return OSStatus(eventNotHandledErr) }
             let manager = Unmanaged<GlobalHotKeyManager>.fromOpaque(userData).takeUnretainedValue()
-            manager.handleHotKeyEvent(event)
-            return noErr
+            return manager.handleHotKeyEvent(event) ? noErr : OSStatus(eventNotHandledErr)
         }, eventSpecs.count, &eventSpecs, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()), &eventHandler)
 
         guard installStatus == noErr else {
@@ -142,8 +144,10 @@ final class GlobalHotKeyManager {
         }
     }
 
-    private func handleHotKeyEvent(_ event: EventRef?) {
-        guard let event else { return }
+    /// Returns whether this manager owns the event, so the caller can pass unclaimed events along
+    /// the Carbon handler chain to the manager that does own them.
+    private func handleHotKeyEvent(_ event: EventRef?) -> Bool {
+        guard let event else { return false }
 
         var receivedHotKeyID = EventHotKeyID()
         let status = GetEventParameter(event,
@@ -154,20 +158,22 @@ final class GlobalHotKeyManager {
                                        nil,
                                        &receivedHotKeyID)
 
-        guard status == noErr, receivedHotKeyID.id == hotKeyID else { return }
+        guard status == noErr, receivedHotKeyID.id == hotKeyID else { return false }
 
         let kind = GetEventKind(event)
         switch kind {
         case UInt32(kEventHotKeyPressed):
-            guard !isPressed else { return }
+            guard !isPressed else { return true }
             isPressed = true
             onHotKeyPressed?()
+            return true
         case UInt32(kEventHotKeyReleased):
-            guard isPressed else { return }
+            guard isPressed else { return true }
             isPressed = false
             onHotKeyReleased?()
+            return true
         default:
-            break
+            return false
         }
     }
 
