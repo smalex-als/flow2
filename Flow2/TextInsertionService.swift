@@ -10,6 +10,7 @@ enum TextInsertionError: LocalizedError {
     case directInsertionFailed(String)
     case eventSourceUnavailable
     case keyEventUnavailable
+    case secureInputEnabled
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ enum TextInsertionError: LocalizedError {
             return "Could not create a keyboard event source."
         case .keyEventUnavailable:
             return "Could not create keyboard events for paste."
+        case .secureInputEnabled:
+            return "Secure input is enabled, so macOS blocks synthetic keystrokes. Close any focused password field and try again."
         }
     }
 }
@@ -57,38 +60,41 @@ final class TextInsertionService {
         }
 
         do {
-            return try insertDirectly(trimmed)
+            return try insertDirectly(trimmed, targetApp: targetApp)
         } catch {
             let fallback = try await paste(trimmed)
             return "Direct insertion failed (\(error.localizedDescription)); \(fallback)"
         }
     }
 
-    private func insertDirectly(_ text: String) throws -> String {
+    private func insertDirectly(_ text: String, targetApp: NSRunningApplication?) throws -> String {
         guard AXIsProcessTrusted() else {
             throw TextInsertionError.accessibilityUnavailable
         }
 
-        let system = AXUIElementCreateSystemWide()
-        var focusedObject: CFTypeRef?
-        let focusedStatus = AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focusedObject)
-        guard focusedStatus == .success, let focusedObject else {
-            throw TextInsertionError.focusedElementUnavailable
-        }
-
-        let element = unsafeDowncast(focusedObject, to: AXUIElement.self)
+        let element = try focusedElement(for: targetApp)
         let role = copyStringAttribute(kAXRoleAttribute as CFString, from: element) ?? "unknown"
         let subrole = copyStringAttribute(kAXSubroleAttribute as CFString, from: element) ?? "none"
-        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+        let app = targetApp?.localizedName ?? NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
 
+        let before = snapshot(of: element)
         let selectedTextStatus = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
         if selectedTextStatus == .success {
-            return "Direct AX insertion succeeded: app=\(app), role=\(role), subrole=\(subrole), path=selectedText, textLength=\(text.count)"
+            switch verifyInsertion(of: text, in: element, before: before) {
+            case .confirmed:
+                return "Direct AX insertion succeeded: app=\(app), role=\(role), subrole=\(subrole), path=selectedText, textLength=\(text.count)"
+            case .unverifiable:
+                return "Direct AX insertion succeeded (unverified): app=\(app), role=\(role), subrole=\(subrole), path=selectedText, textLength=\(text.count)"
+            case .rejected:
+                throw TextInsertionError.directInsertionFailed("selected-text write reported success but the element did not change, role=\(role), subrole=\(subrole)")
+            }
         }
 
         if shouldUseValueReplacement(role: role),
            var currentValue = copyStringAttribute(kAXValueAttribute as CFString, from: element) {
-            let nsRange = try selectedRange(in: element)
+            guard let nsRange = selectedRange(in: element) else {
+                throw TextInsertionError.directInsertionFailed("selected range unavailable for value replacement, role=\(role), subrole=\(subrole)")
+            }
             guard let swiftRange = Range(nsRange, in: currentValue) else {
                 throw TextInsertionError.directInsertionFailed("invalid selected range for value replacement, role=\(role), subrole=\(subrole)")
             }
@@ -98,6 +104,9 @@ final class TextInsertionService {
             guard setStatus == .success else {
                 throw TextInsertionError.directInsertionFailed("set value status=\(setStatus.rawValue), role=\(role), subrole=\(subrole)")
             }
+            guard copyStringAttribute(kAXValueAttribute as CFString, from: element) == currentValue else {
+                throw TextInsertionError.directInsertionFailed("value write reported success but the element did not change, role=\(role), subrole=\(subrole)")
+            }
 
             let newLocation = nsRange.location + text.utf16.count
             setSelectedRange(location: newLocation, in: element)
@@ -106,21 +115,74 @@ final class TextInsertionService {
         throw TextInsertionError.directInsertionFailed("selected-text set status=\(selectedTextStatus.rawValue), role=\(role), subrole=\(subrole)")
     }
 
-    private func selectedRange(in element: AXUIElement) throws -> NSRange {
+    /// Focus resolved through the target process rather than the system-wide element, because
+    /// transcription runs for a few seconds and the frontmost app may have changed meanwhile.
+    private func focusedElement(for targetApp: NSRunningApplication?) throws -> AXUIElement {
+        if let processIdentifier = targetApp?.processIdentifier {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            if let focused = copyElementAttribute(kAXFocusedUIElementAttribute as CFString, from: appElement) {
+                return focused
+            }
+        }
+
+        guard let focused = copyElementAttribute(kAXFocusedUIElementAttribute as CFString,
+                                                 from: AXUIElementCreateSystemWide()) else {
+            throw TextInsertionError.focusedElementUnavailable
+        }
+
+        return focused
+    }
+
+    private enum InsertionVerification {
+        case confirmed
+        case rejected
+        case unverifiable
+    }
+
+    private struct ElementTextSnapshot {
+        let value: String?
+        let selectionLocation: Int?
+    }
+
+    private func snapshot(of element: AXUIElement) -> ElementTextSnapshot {
+        ElementTextSnapshot(
+            value: copyStringAttribute(kAXValueAttribute as CFString, from: element),
+            selectionLocation: selectedRange(in: element)?.location
+        )
+    }
+
+    /// A successful `AXError` only means the accessibility server accepted the write. Elements that
+    /// expose a container instead of the real text control, and rich-text views with a no-op setter,
+    /// report success and drop the text, so the write is confirmed against the element's own state.
+    private func verifyInsertion(of text: String, in element: AXUIElement, before: ElementTextSnapshot) -> InsertionVerification {
+        let after = snapshot(of: element)
+
+        if let beforeValue = before.value, let afterValue = after.value {
+            return beforeValue == afterValue ? .rejected : .confirmed
+        }
+
+        if let beforeLocation = before.selectionLocation, let afterLocation = after.selectionLocation {
+            return afterLocation == beforeLocation + text.utf16.count ? .confirmed : .rejected
+        }
+
+        return .unverifiable
+    }
+
+    private func selectedRange(in element: AXUIElement) -> NSRange? {
         var rangeObject: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeObject)
         guard status == .success, let rangeObject, CFGetTypeID(rangeObject) == AXValueGetTypeID() else {
-            return NSRange(location: 0, length: 0)
+            return nil
         }
 
         let axValue = unsafeDowncast(rangeObject, to: AXValue.self)
         guard AXValueGetType(axValue) == .cfRange else {
-            return NSRange(location: 0, length: 0)
+            return nil
         }
 
         var range = CFRange()
         guard AXValueGetValue(axValue, .cfRange, &range) else {
-            return NSRange(location: 0, length: 0)
+            return nil
         }
 
         return NSRange(location: range.location, length: range.length)
@@ -139,16 +201,32 @@ final class TextInsertionService {
         return object as? String
     }
 
+    private func copyElementAttribute(_ attribute: CFString, from element: AXUIElement) -> AXUIElement? {
+        var object: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(element, attribute, &object)
+        guard status == .success, let object, CFGetTypeID(object) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return unsafeDowncast(object, to: AXUIElement.self)
+    }
+
     private func shouldUseValueReplacement(role: String) -> Bool {
         role == kAXTextFieldRole as String || role == "AXSearchField" || role == kAXComboBoxRole as String
     }
 
     private func paste(_ text: String) async throws -> String {
+        guard !IsSecureEventInputEnabled() else {
+            throw TextInsertionError.secureInputEnabled
+        }
+
         let pasteboard = NSPasteboard.general
         let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+
+        // Give the pasteboard server time to propagate before the target app reads it.
+        try? await Task.sleep(for: .milliseconds(40))
 
         let eventSourceState = CGEventSourceStateID.combinedSessionState
         guard let source = CGEventSource(stateID: eventSourceState) else {
@@ -162,6 +240,7 @@ final class TextInsertionService {
             throw TextInsertionError.keyEventUnavailable
         }
 
+        commandDown.flags = CGEventFlags.maskCommand
         vDown.flags = CGEventFlags.maskCommand
         vUp.flags = CGEventFlags.maskCommand
 
@@ -173,6 +252,10 @@ final class TextInsertionService {
     }
 
     private func typeText(_ text: String, targetApp: NSRunningApplication?) async throws -> String {
+        guard !IsSecureEventInputEnabled() else {
+            throw TextInsertionError.secureInputEnabled
+        }
+
         let frontmostAppName = targetApp?.localizedName ?? NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
         let eventSourceState = CGEventSourceStateID.combinedSessionState
         guard let source = CGEventSource(stateID: eventSourceState) else {
@@ -207,12 +290,16 @@ final class TextInsertionService {
         commandUp.post(tap: tap)
     }
 
+    /// `activate` is asynchronous, so the activation is polled instead of assumed after a fixed wait.
     private func activateTargetAppIfNeeded(_ targetApp: NSRunningApplication?) async {
-        guard let targetApp else { return }
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier != targetApp.processIdentifier else { return }
+        guard let targetApp, !targetApp.isActive else { return }
 
-        targetApp.activate(options: [.activateIgnoringOtherApps])
-        try? await Task.sleep(for: .milliseconds(180))
+        targetApp.activate()
+
+        for _ in 0 ..< 24 {
+            try? await Task.sleep(for: .milliseconds(25))
+            if targetApp.isActive { return }
+        }
     }
 
     private func isTerminalApp(_ targetApp: NSRunningApplication?) -> Bool {
