@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1000000000000000000004E /* AppConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* AppConfigurationTests.swift */; };
+		A1000000000000000000004F /* PasteboardSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000043 /* PasteboardSnapshotTests.swift */; };
+		A10000000000000000000050 /* AudioLevelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000044 /* AudioLevelTests.swift */; };
 		A10000000000000000000001 /* Flow2App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* Flow2App.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* ContentView.swift */; };
 		A10000000000000000000003 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* SettingsView.swift */; };
@@ -25,6 +28,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A10000000000000000000040 /* Flow2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Flow2Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000042 /* AppConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigurationTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000043 /* PasteboardSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardSnapshotTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000044 /* AudioLevelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelTests.swift; sourceTree = "<group>"; };
 		A1000000000000000000000A /* Flow2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Flow2.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000011 /* Flow2App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Flow2App.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -46,6 +53,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A1000000000000000000004A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000020 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -56,10 +70,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A10000000000000000000041 /* Flow2Tests */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000042 /* AppConfigurationTests.swift */,
+				A10000000000000000000043 /* PasteboardSnapshotTests.swift */,
+				A10000000000000000000044 /* AudioLevelTests.swift */,
+			);
+			path = Flow2Tests;
+			sourceTree = "<group>";
+		};
 		A10000000000000000000021 = {
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000022 /* Flow2 */,
+				A10000000000000000000041 /* Flow2Tests */,
 				A10000000000000000000023 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -92,6 +117,7 @@
 			isa = PBXGroup;
 			children = (
 				A1000000000000000000000A /* Flow2.app */,
+				A10000000000000000000040 /* Flow2Tests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -107,6 +133,45 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+/* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		A1000000000000000000004D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000029 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000025;
+			remoteInfo = Flow2;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		A1000000000000000000004C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000025 /* Flow2 */;
+			targetProxy = A1000000000000000000004D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXNativeTarget section */
+		A10000000000000000000045 /* Flow2Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000046 /* Build configuration list for PBXNativeTarget "Flow2Tests" */;
+			buildPhases = (
+				A10000000000000000000049 /* Sources */,
+				A1000000000000000000004A /* Frameworks */,
+				A1000000000000000000004B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000004C /* PBXTargetDependency */,
+			);
+			name = Flow2Tests;
+			productName = Flow2Tests;
+			productReference = A10000000000000000000040 /* Flow2Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		A10000000000000000000025 /* Flow2 */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000026 /* Build configuration list for PBXNativeTarget "Flow2" */;
@@ -138,6 +203,10 @@
 					A10000000000000000000025 = {
 						CreatedOnToolsVersion = 26.3;
 					};
+					A10000000000000000000045 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = A10000000000000000000025;
+					};
 				};
 			};
 			buildConfigurationList = A1000000000000000000002A /* Build configuration list for PBXProject "Flow2" */;
@@ -155,11 +224,19 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000000025 /* Flow2 */,
+				A10000000000000000000045 /* Flow2Tests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A1000000000000000000004B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000028 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -236,6 +313,16 @@ fi
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000049 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000000000004E /* AppConfigurationTests.swift in Sources */,
+				A1000000000000000000004F /* PasteboardSnapshotTests.swift in Sources */,
+				A10000000000000000000050 /* AudioLevelTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000027 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -259,6 +346,40 @@ fi
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		A10000000000000000000047 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smalex.Flow2Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Flow2.app/Contents/MacOS/Flow2";
+			};
+			name = Debug;
+		};
+		A10000000000000000000048 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smalex.Flow2Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Flow2.app/Contents/MacOS/Flow2";
+			};
+			name = Release;
+		};
 		A1000000000000000000002B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -268,6 +389,7 @@ fi
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Flow2/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -289,6 +411,7 @@ fi
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Flow2/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -324,6 +447,15 @@ fi
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A10000000000000000000046 /* Build configuration list for PBXNativeTarget "Flow2Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000047 /* Debug */,
+				A10000000000000000000048 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A10000000000000000000026 /* Build configuration list for PBXNativeTarget "Flow2" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

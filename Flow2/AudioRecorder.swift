@@ -71,7 +71,7 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     /// Measured on this machine: an idle room sits near -38 dB and speech peaks near -7 dB. A -45 dB
     /// floor leaves room tone as a visible sliver rather than a half-full bar, so the meter still
     /// proves the microphone is live but only speech moves it far.
-    private static let silenceFloorDecibels: Float = -45
+    nonisolated private static let silenceFloorDecibels: Float = -45
 
     private var recorder: AVAudioRecorder?
     private var currentFileURL: URL?
@@ -116,10 +116,14 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         guard let recorder, recorder.isRecording else { return 0 }
 
         recorder.updateMeters()
-        let decibels = recorder.averagePower(forChannel: 0)
-        guard decibels > Self.silenceFloorDecibels else { return 0 }
+        return Self.normalizedLevel(decibels: recorder.averagePower(forChannel: 0))
+    }
 
-        return min(1, (decibels - Self.silenceFloorDecibels) / -Self.silenceFloorDecibels)
+    /// Pure arithmetic, deliberately free of the recorder's isolation so it can be reasoned about
+    /// — and tested — without an audio session.
+    nonisolated static func normalizedLevel(decibels: Float) -> Float {
+        guard decibels > silenceFloorDecibels else { return 0 }
+        return min(1, (decibels - silenceFloorDecibels) / -silenceFloorDecibels)
     }
 
     func stop() async throws -> URL {

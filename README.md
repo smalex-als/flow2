@@ -152,6 +152,7 @@ The repository also includes a Makefile with shortcuts for common build tasks:
 ```bash
 make          # Build the Debug configuration
 make run      # Build and launch Flow2
+make test     # Run the unit tests
 make clean    # Remove build products
 ```
 
@@ -172,7 +173,8 @@ make run CONFIGURATION=Release
 - `Flow2/TextInsertionService.swift`: native insertion, terminal typing, paste fallback
 - `Flow2/SettingsView.swift`: settings UI
 - `Flow2/ContentView.swift`: main window, transcript list, debug/status UI
-- `Flow2/AppConfiguration.swift`: persisted config and storage paths
+- `Flow2/AppConfiguration.swift`: persisted config, migrations, and storage paths
+- `Flow2Tests/`: unit tests for configuration migration, pasteboard restore, and level metering
 
 ## Data Storage
 

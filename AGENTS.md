@@ -9,7 +9,7 @@
 - `Flow2/SettingsView.swift` and `Flow2/ContentView.swift` contain the UI.
 - `Flow2/Assets.xcassets` stores app assets.
 - `Flow2.xcodeproj/` is the Xcode project. Update `project.pbxproj` when adding new source files.
-- There is currently no test target in the repository.
+- `Flow2Tests/` holds the unit test target, covering the pure logic worth pinning down: configuration decoding and migration, pasteboard save/restore, and audio level normalization.
 
 ## Build, Test, and Development Commands
 
@@ -39,8 +39,16 @@
 
 ## Testing Guidelines
 
-- There is no automated test suite yet.
-- At minimum, verify changes by building with `xcodebuild`.
+- Run the suite with `make test`, or:
+  ```bash
+  xcodebuild test -project Flow2.xcodeproj -scheme Flow2 -destination 'platform=macOS' -derivedDataPath .deriveddata
+  ```
+- Add tests for logic that is decided once and then trusted forever — `AppConfiguration.init(from:)`
+  is the clearest example, since a regression there rewrites a user's shortcuts or languages without
+  anything appearing broken.
+- Pasteboard tests must use a private `NSPasteboard`, never `.general`: the suite must not touch the
+  clipboard of whoever runs it.
+- UI behavior has no coverage; verify those changes by building and running.
 - For behavioral changes, manually test:
   - recording start/stop
   - transcription

@@ -53,7 +53,11 @@ stop:
 	@pkill -x "$(APP_NAME)" 2>/dev/null || true
 
 test:
-	@echo "No unit test target is configured for $(SCHEME)."
+	xcodebuild test \
+		-project $(PROJECT) \
+		-scheme $(SCHEME) \
+		-destination 'platform=macOS' \
+		-derivedDataPath $(DERIVED_DATA)
 
 open:
 	open "$(PROJECT)"

@@ -34,7 +34,7 @@ enum TextInsertionError: LocalizedError {
 
 /// Everything the general pasteboard held before Flow2 overwrote it, so the user's own clipboard
 /// can be put back after the synthetic paste.
-private struct PasteboardSnapshot {
+struct PasteboardSnapshot {
     private let items: [[NSPasteboard.PasteboardType: Data]]
 
     var isEmpty: Bool { items.isEmpty }
