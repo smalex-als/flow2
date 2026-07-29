@@ -40,18 +40,40 @@ struct TranscriptHistoryItem: Identifiable, Codable {
     }
 }
 
-enum TranslationBehavior: Equatable {
-    /// Translate only when the "Auto-translate Russian to English" setting is on.
-    case followSettings
-    /// Never translate, even when the setting is on: keep the spoken language.
-    case keepOriginalLanguage
+/// What a recording is for. The mode is fixed the moment the user presses a shortcut, because
+/// push-to-talk gives no later opportunity to state the intent.
+enum DictationMode: String, Codable, CaseIterable, Identifiable, Equatable {
+    /// Insert what was said, in the language it was said.
+    case dictate
+    /// Insert an English translation of what was said.
+    case translate
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dictate:
+            return "Dictate"
+        case .translate:
+            return "Dictate & Translate"
+        }
+    }
 
     var shortDescription: String {
         switch self {
-        case .followSettings:
-            return "with translation"
-        case .keepOriginalLanguage:
-            return "without translation"
+        case .dictate:
+            return "as spoken"
+        case .translate:
+            return "translated to English"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .dictate:
+            return "mic.circle.fill"
+        case .translate:
+            return "globe"
         }
     }
 }
@@ -62,7 +84,7 @@ enum AppWorkflowPhase: Equatable {
     case recording
     case finalizingRecording
     case transcribing
-    case editing
+    case translating
     case inserting
 }
 
@@ -77,7 +99,7 @@ final class AppViewModel: ObservableObject {
     @Published var isShowingMissingKeyAlert = false
     @Published var settingsError: String?
     @Published var hotKeyStatus = "Hotkey not registered"
-    @Published var hotKeyRegistrationFailed = false
+    @Published var failedHotKeyModes: Set<DictationMode> = []
     @Published var insertionStatus = "Auto-paste after transcription is enabled"
     @Published var accessibilityStatus = "Accessibility status unknown"
     @Published var appBundlePath = Bundle.main.bundleURL.path
@@ -92,7 +114,7 @@ final class AppViewModel: ObservableObject {
     private let recordingIndicator = RecordingIndicatorController()
     private var insertionTargetApp: NSRunningApplication?
     private var stopRequestedDuringRecordingStart = false
-    private var activeTranslationBehavior: TranslationBehavior = .followSettings
+    private var activeMode: DictationMode = .dictate
 
     var isRecording: Bool {
         workflowPhase == .startingRecording || workflowPhase == .recording
@@ -100,17 +122,22 @@ final class AppViewModel: ObservableObject {
 
     var isBusy: Bool {
         switch workflowPhase {
-        case .finalizingRecording, .transcribing, .editing, .inserting:
+        case .finalizingRecording, .transcribing, .translating, .inserting:
             return true
         case .idle, .startingRecording, .recording:
             return false
         }
     }
 
+    /// The mode of the recording in flight, so the UI can show what is being produced.
+    var recordingMode: DictationMode? {
+        workflowPhase == .idle ? nil : activeMode
+    }
+
     func loadConfiguration() async {
         do {
             configuration = try configStore.load()
-            appendLog("Config loaded: transcriptionModel=\(OpenAITranscriptionClient.model), editingModel=\(configuration.editingModel.rawValue), enableAIEditing=\(configuration.enableAIEditing), translateToEnglish=\(configuration.autoTranslateRussianToEnglish)")
+            appendLog("Config loaded: transcriptionModel=\(OpenAITranscriptionClient.model), translationModel=\(configuration.translationModel.rawValue), dictate=\(configuration.dictateHotKey.displayName), translate=\(configuration.translateHotKey.displayName)")
         } catch {
             statusText = "Could not load config: \(error.localizedDescription)"
         }
@@ -142,7 +169,7 @@ final class AppViewModel: ObservableObject {
             try configStore.save(next)
             configuration = next
             NotificationCenter.default.post(name: .flow2ConfigurationDidChange, object: nil)
-            appendLog("Settings saved: transcriptionModel=\(OpenAITranscriptionClient.model), editingModel=\(next.editingModel.rawValue), enableAIEditing=\(next.enableAIEditing), translateToEnglish=\(next.autoTranslateRussianToEnglish)")
+            appendLog("Settings saved: translationModel=\(next.translationModel.rawValue), dictate=\(next.dictateHotKey.displayName), translate=\(next.translateHotKey.displayName)")
         } catch {
             settingsError = "Could not save settings: \(error.localizedDescription)"
             appendLog("Settings save failed: \(error.localizedDescription)")
@@ -169,28 +196,28 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func toggleRecording() async {
+    func toggleRecording(mode: DictationMode) async {
         switch workflowPhase {
         case .startingRecording, .recording:
             await stopRecording()
         case .idle:
-            await startRecording(translationBehavior: .followSettings)
-        case .finalizingRecording, .transcribing, .editing, .inserting:
+            await startRecording(mode: mode)
+        case .finalizingRecording, .transcribing, .translating, .inserting:
             break
         }
     }
 
-    func startRecordingFromHotKey(translationBehavior: TranslationBehavior) async {
-        await startRecording(translationBehavior: translationBehavior)
+    func startRecordingFromHotKey(mode: DictationMode) async {
+        await startRecording(mode: mode)
     }
 
     func stopRecordingFromHotKey() async {
         await stopRecording()
     }
 
-    func updateHotKeyStatus(_ text: String, didFail: Bool) {
+    func updateHotKeyStatus(_ text: String, failedModes: Set<DictationMode>) {
         hotKeyStatus = text
-        hotKeyRegistrationFailed = didFail
+        failedHotKeyModes = failedModes
     }
 
     func copyTranscript() {
@@ -281,12 +308,12 @@ final class AppViewModel: ObservableObject {
         appendLog("Revealed current app bundle in Finder")
     }
 
-    private func startRecording(translationBehavior: TranslationBehavior) async {
+    private func startRecording(mode: DictationMode) async {
         guard workflowPhase == .idle else { return }
 
         workflowPhase = .startingRecording
         stopRequestedDuringRecordingStart = false
-        activeTranslationBehavior = translationBehavior
+        activeMode = mode
         statusText = "Starting recording..."
         insertionTargetApp = NSWorkspace.shared.frontmostApplication
 
@@ -296,7 +323,7 @@ final class AppViewModel: ObservableObject {
             transcript = ""
             statusText = "Recording to \(url.lastPathComponent)"
             let targetAppName = insertionTargetApp?.localizedName ?? "unknown"
-            appendLog("Recording started: \(url.lastPathComponent), targetApp=\(targetAppName), translationBehavior=\(translationBehavior.shortDescription)")
+            appendLog("Recording started: \(url.lastPathComponent), targetApp=\(targetAppName), mode=\(mode.rawValue)")
 
             if stopRequestedDuringRecordingStart {
                 appendLog("Recording startup completed after stop was requested; stopping immediately")
@@ -304,12 +331,12 @@ final class AppViewModel: ObservableObject {
                 return
             }
 
-            recordingIndicator.show()
+            recordingIndicator.show(mode: mode)
         } catch {
             workflowPhase = .idle
             insertionTargetApp = nil
             stopRequestedDuringRecordingStart = false
-            activeTranslationBehavior = .followSettings
+            activeMode = .dictate
             statusText = "Failed to start recording: \(error.localizedDescription)"
             appendLog("Recording failed to start: \(error.localizedDescription)")
         }
@@ -330,7 +357,7 @@ final class AppViewModel: ObservableObject {
         defer {
             insertionTargetApp = nil
             stopRequestedDuringRecordingStart = false
-            activeTranslationBehavior = .followSettings
+            activeMode = .dictate
             workflowPhase = .idle
         }
 
@@ -388,7 +415,7 @@ final class AppViewModel: ObservableObject {
             saveHistory()
         }
 
-        let finalText = await postProcessTranscriptIfNeeded(rawText, apiKey: apiKey)
+        let finalText = await translateTranscriptIfNeeded(rawText, apiKey: apiKey)
         workflowPhase = .transcribing
         transcript = finalText
         statusText = "Transcription complete"
@@ -496,53 +523,44 @@ final class AppViewModel: ObservableObject {
         configuration = next
     }
 
-    private func postProcessTranscriptIfNeeded(_ text: String, apiKey: String) async -> String {
+    /// `Dictate` inserts the transcript untouched, so the second model only runs for `translate`,
+    /// and only when there is Russian in the text to translate.
+    private func translateTranscriptIfNeeded(_ text: String, apiKey: String) async -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
-        let preferredTerms = configuration.preferredTerms
-        let shouldEdit = configuration.enableAIEditing
-        let shouldTranslateToEnglish = activeTranslationBehavior == .followSettings
-            && configuration.autoTranslateRussianToEnglish
-            && containsRussianText(trimmed)
+        guard activeMode == .translate else { return trimmed }
 
-        guard shouldEdit || shouldTranslateToEnglish else {
+        guard containsRussianText(trimmed) else {
+            appendLog("Translation skipped: no Cyrillic in the transcript")
             return trimmed
         }
 
-        workflowPhase = .editing
-        switch (shouldEdit, shouldTranslateToEnglish) {
-        case (true, true):
-            statusText = "Editing and translating transcript..."
-        case (true, false):
-            statusText = "Editing transcript..."
-        case (false, true):
-            statusText = "Translating transcript..."
-        case (false, false):
-            return trimmed
-        }
+        workflowPhase = .translating
+        statusText = "Translating transcript..."
 
+        // Failed recordings carry no text and would arrive as blank numbered lines of context.
         let previousMessages = transcriptHistory
+            .lazy
+            .filter { !$0.isFailedRecording }
             .prefix(8)
             .map(\.text)
             .reversed()
 
-        appendLog("AI post-processing started: previousMessages=\(previousMessages.count), model=\(configuration.editingModel.rawValue), editTranscript=\(shouldEdit), translateToEnglish=\(shouldTranslateToEnglish)")
+        appendLog("Translation started: previousMessages=\(previousMessages.count), model=\(configuration.translationModel.rawValue)")
 
         do {
-            let client = OpenAIEditingClient()
-            let processedText = try await client.processLatestMessage(
+            let client = OpenAITranslationClient()
+            let translatedText = try await client.translateLatestMessage(
                 latestMessage: trimmed,
                 previousMessages: Array(previousMessages),
-                preferredTerms: preferredTerms,
-                model: configuration.editingModel.rawValue,
-                enableEditing: shouldEdit,
-                translateToEnglish: shouldTranslateToEnglish,
+                preferredTerms: configuration.preferredTerms,
+                model: configuration.translationModel.rawValue,
                 apiKey: apiKey
             )
-            appendLog("AI post-processing complete: \(processedText.count) chars")
-            return processedText
+            appendLog("Translation complete: \(translatedText.count) chars")
+            return translatedText
         } catch {
-            appendLog("AI post-processing failed, using raw transcript: \(error.localizedDescription)")
+            appendLog("Translation failed, using raw transcript: \(error.localizedDescription)")
             return trimmed
         }
     }
@@ -563,9 +581,10 @@ final class AppViewModel: ObservableObject {
 final class RecordingIndicatorController {
     private var panel: NSPanel?
 
-    func show() {
+    func show(mode: DictationMode) {
         let panel = panel ?? makePanel()
         self.panel = panel
+        panel.contentView = NSHostingView(rootView: RecordingIndicatorView(mode: mode))
         position(panel)
         panel.orderFrontRegardless()
     }
@@ -576,7 +595,7 @@ final class RecordingIndicatorController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 112, height: 112),
+            contentRect: NSRect(x: 0, y: 0, width: 132, height: 132),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -590,7 +609,6 @@ final class RecordingIndicatorController {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
-        panel.contentView = NSHostingView(rootView: RecordingIndicatorView())
         return panel
     }
 
@@ -603,16 +621,27 @@ final class RecordingIndicatorController {
     }
 }
 
+/// Names the mode, because which shortcut was pressed is the only thing that decides whether the
+/// result comes back translated, and that is easy to get wrong mid-sentence.
 private struct RecordingIndicatorView: View {
+    let mode: DictationMode
+
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.black.opacity(0.82))
-            Image(systemName: "mic.fill")
-                .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(.white)
+
+            VStack(spacing: 6) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 38, weight: .semibold))
+
+                Text(mode == .translate ? "EN" : "AS SPOKEN")
+                    .font(.system(size: mode == .translate ? 13 : 9, weight: .bold))
+                    .kerning(0.5)
+            }
+            .foregroundStyle(.white)
         }
-        .frame(width: 112, height: 112)
+        .frame(width: 132, height: 132)
         .overlay {
             Circle()
                 .stroke(Color.white.opacity(0.14), lineWidth: 1)

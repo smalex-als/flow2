@@ -48,14 +48,14 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Flow2")
                     .font(.system(size: 32, weight: .semibold))
-                Text("Push-to-talk dictation for macOS with OpenAI transcription, AI cleanup, and direct app insertion.")
+                Text("Push-to-talk dictation for macOS. Hold one shortcut to dictate, the other to come back in English.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
-                    hotKeyChip
-                    statusChip(title: viewModel.configuration.enableAIEditing ? "AI Edit On" : "AI Edit Off", systemImage: "sparkles")
-                    statusChip(title: viewModel.configuration.autoTranslateRussianToEnglish ? "Translate On" : "Translate Off", systemImage: "character.book.closed")
+                    ForEach(DictationMode.allCases) { mode in
+                        modeChip(for: mode)
+                    }
                 }
             }
 
@@ -175,17 +175,31 @@ struct ContentView: View {
             }
 
             HStack(spacing: 12) {
-                Button {
-                    Task {
-                        await viewModel.toggleRecording()
+                if viewModel.isRecording {
+                    Button {
+                        Task {
+                            await viewModel.toggleRecording(mode: .dictate)
+                        }
+                    } label: {
+                        Label("Stop Recording", systemImage: "stop.circle.fill")
                     }
-                } label: {
-                    Label(viewModel.isRecording ? "Stop Recording" : "Start Recording",
-                          systemImage: viewModel.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                    .keyboardShortcut(.space, modifiers: [])
+                    .controlSize(.large)
+                } else {
+                    // One button per mode: the mode has to be chosen before speaking, not after.
+                    ForEach(DictationMode.allCases) { mode in
+                        Button {
+                            Task {
+                                await viewModel.toggleRecording(mode: mode)
+                            }
+                        } label: {
+                            Label(mode.title, systemImage: mode.systemImage)
+                        }
+                        .keyboardShortcut(mode == .dictate ? KeyboardShortcut(.space, modifiers: []) : nil)
+                        .controlSize(.large)
+                        .disabled(viewModel.isBusy)
+                    }
                 }
-                .keyboardShortcut(.space, modifiers: [])
-                .controlSize(.large)
-                .disabled(viewModel.isBusy)
 
                 if viewModel.isBusy {
                     ProgressView()
@@ -207,7 +221,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
                     footerInfoCard(title: "Transcription", value: transcriptionModelLabel, systemImage: "waveform")
-                    footerInfoCard(title: "AI Post-Processing", value: aiPostProcessingModelLabel, systemImage: "sparkles")
+                    footerInfoCard(title: "Translation", value: viewModel.configuration.translationModel.rawValue, systemImage: "globe")
                     footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
                     footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
                 }
@@ -278,14 +292,15 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Carries the registration outcome rather than the configured shortcut alone, so a hotkey the
-    /// system refused is visible without opening Diagnostics. The full status stays in the tooltip.
-    private var hotKeyChip: some View {
-        let failed = viewModel.hotKeyRegistrationFailed
+    /// One chip per mode, carrying its own registration outcome, so a shortcut the system refused is
+    /// visible without opening Diagnostics. The full status stays in the tooltip.
+    private func modeChip(for mode: DictationMode) -> some View {
+        let failed = viewModel.failedHotKeyModes.contains(mode)
+        let shortcut = viewModel.configuration.hotKey(for: mode).displayName
 
         return statusChip(
-            title: failed ? "Hotkey unavailable" : viewModel.configuration.hotKey.displayName,
-            systemImage: failed ? "exclamationmark.triangle.fill" : "keyboard",
+            title: failed ? "\(mode.title) unavailable" : "\(shortcut)  \(mode.title)",
+            systemImage: failed ? "exclamationmark.triangle.fill" : mode.systemImage,
             tint: failed ? .orange : nil
         )
         .help(viewModel.hotKeyStatus)
@@ -299,14 +314,6 @@ struct ContentView: View {
             .padding(.vertical, 6)
             .background((tint ?? Color.secondary).opacity(tint == nil ? 0.1 : 0.15))
             .clipShape(Capsule())
-    }
-
-    private var aiPostProcessingModelLabel: String {
-        guard viewModel.configuration.enableAIEditing || viewModel.configuration.autoTranslateRussianToEnglish else {
-            return "Off"
-        }
-
-        return viewModel.configuration.editingModel.rawValue
     }
 
     private var transcriptionModelLabel: String {

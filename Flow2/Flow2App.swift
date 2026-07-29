@@ -57,25 +57,25 @@ private struct MenuBarContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(viewModel.isRecording ? "Recording..." : viewModel.statusText)
+            Text(statusLine)
                 .font(.headline)
 
-            Text(hotKeyHint)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Button(viewModel.isRecording ? "Stop Recording" : "Start Recording") {
-                Task {
-                    await viewModel.toggleRecording()
+            if viewModel.isRecording {
+                Button("Stop Recording") {
+                    Task {
+                        await viewModel.toggleRecording(mode: .dictate)
+                    }
+                }
+            } else {
+                ForEach(DictationMode.allCases) { mode in
+                    Button("\(mode.title)  \(viewModel.configuration.hotKey(for: mode).displayName)") {
+                        Task {
+                            await viewModel.toggleRecording(mode: mode)
+                        }
+                    }
+                    .disabled(viewModel.isBusy)
                 }
             }
-            .disabled(viewModel.isBusy)
-
-            Divider()
-
-            Toggle("AI Auto-Edit", isOn: aiEditingBinding)
-
-            Toggle("Translate RU -> EN", isOn: autoTranslateBinding)
 
             Divider()
 
@@ -102,34 +102,8 @@ private struct MenuBarContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private var hotKeyHint: String {
-        let configuration = viewModel.configuration
-        guard configuration.enableNoTranslateHotKey, configuration.noTranslateHotKey != configuration.hotKey else {
-            return configuration.hotKey.displayName
-        }
-
-        return "\(configuration.hotKey.displayName) with translation · \(configuration.noTranslateHotKey.displayName) without translation"
-    }
-
-    private var aiEditingBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.configuration.enableAIEditing },
-            set: { newValue in
-                Task {
-                    await viewModel.updateConfiguration { $0.enableAIEditing = newValue }
-                }
-            }
-        )
-    }
-
-    private var autoTranslateBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.configuration.autoTranslateRussianToEnglish },
-            set: { newValue in
-                Task {
-                    await viewModel.updateConfiguration { $0.autoTranslateRussianToEnglish = newValue }
-                }
-            }
-        )
+    private var statusLine: String {
+        guard let mode = viewModel.recordingMode else { return viewModel.statusText }
+        return viewModel.isRecording ? "Recording \(mode.shortDescription)..." : viewModel.statusText
     }
 }

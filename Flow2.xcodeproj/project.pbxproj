@@ -18,7 +18,7 @@
 		A10000000000000000000009 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000019 /* Preview Assets.xcassets */; };
 		A1000000000000000000000B /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001C /* AppDelegate.swift */; };
 		A1000000000000000000000C /* TextInsertionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001D /* TextInsertionService.swift */; };
-		A1000000000000000000002F /* OpenAIEditingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000030 /* OpenAIEditingClient.swift */; };
+		A1000000000000000000002F /* OpenAITranslationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000030 /* OpenAITranslationClient.swift */; };
 		A10000000000000000000035 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000036 /* AboutView.swift */; };
 		A10000000000000000000038 /* HotKeyShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000039 /* HotKeyShortcut.swift */; };
 		A1000000000000000000003A /* HotKeyRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003B /* HotKeyRecorderView.swift */; };
@@ -39,7 +39,7 @@
 		A1000000000000000000001B /* Flow2.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Flow2.entitlements; sourceTree = "<group>"; };
 		A1000000000000000000001C /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A1000000000000000000001D /* TextInsertionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextInsertionService.swift; sourceTree = "<group>"; };
-		A10000000000000000000030 /* OpenAIEditingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEditingClient.swift; sourceTree = "<group>"; };
+		A10000000000000000000030 /* OpenAITranslationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAITranslationClient.swift; sourceTree = "<group>"; };
 		A10000000000000000000036 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A10000000000000000000039 /* HotKeyShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyShortcut.swift; sourceTree = "<group>"; };
 		A1000000000000000000003B /* HotKeyRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyRecorderView.swift; sourceTree = "<group>"; };
@@ -77,7 +77,7 @@
 				A10000000000000000000039 /* HotKeyShortcut.swift */,
 				A1000000000000000000003B /* HotKeyRecorderView.swift */,
 				A10000000000000000000016 /* OpenAITranscriptionClient.swift */,
-				A10000000000000000000030 /* OpenAIEditingClient.swift */,
+				A10000000000000000000030 /* OpenAITranslationClient.swift */,
 				A1000000000000000000001D /* TextInsertionService.swift */,
 				A10000000000000000000017 /* AppConfiguration.swift */,
 				A10000000000000000000018 /* Assets.xcassets */,
@@ -208,7 +208,7 @@
 				A10000000000000000000001 /* Flow2App.swift in Sources */,
 				A1000000000000000000003A /* HotKeyRecorderView.swift in Sources */,
 				A10000000000000000000038 /* HotKeyShortcut.swift in Sources */,
-				A1000000000000000000002F /* OpenAIEditingClient.swift in Sources */,
+				A1000000000000000000002F /* OpenAITranslationClient.swift in Sources */,
 				A10000000000000000000006 /* OpenAITranscriptionClient.swift in Sources */,
 				A10000000000000000000003 /* SettingsView.swift in Sources */,
 				A1000000000000000000000C /* TextInsertionService.swift in Sources */,

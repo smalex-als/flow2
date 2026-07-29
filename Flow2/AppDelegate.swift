@@ -33,13 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let viewModel else { return }
 
         let configuration = viewModel.configuration
-        var requests: [(id: UInt32, shortcut: HotKeyShortcut, behavior: TranslationBehavior)] = [
-            (1, configuration.hotKey, .followSettings)
+        // Both modes are always available: push-to-talk offers no way to state the intent after the
+        // fact, so the shortcut pressed is what picks between dictating and translating.
+        let requests: [(id: UInt32, shortcut: HotKeyShortcut, mode: DictationMode)] = [
+            (1, configuration.translateHotKey, .translate),
+            (2, configuration.dictateHotKey, .dictate)
         ]
-
-        if configuration.enableNoTranslateHotKey, configuration.noTranslateHotKey != configuration.hotKey {
-            requests.append((2, configuration.noTranslateHotKey, .keepOriginalLanguage))
-        }
 
         // Settings save on every edit, and tearing the hotkeys down while one is held would drop its
         // release event and leave a recording running. Unrelated changes must not touch them.
@@ -50,14 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyManagers = []
 
         var statusParts: [String] = []
-        var didFail = false
+        var failedModes: Set<DictationMode> = []
 
         for request in requests {
             let manager = GlobalHotKeyManager(shortcut: request.shortcut, hotKeyID: request.id)
             manager.onHotKeyPressed = { [weak viewModel] in
                 guard let viewModel else { return }
                 Task { @MainActor in
-                    await viewModel.startRecordingFromHotKey(translationBehavior: request.behavior)
+                    await viewModel.startRecordingFromHotKey(mode: request.mode)
                 }
             }
             manager.onHotKeyReleased = { [weak viewModel] in
@@ -70,14 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try manager.register()
                 hotKeyManagers.append(manager)
-                statusParts.append("\(request.shortcut.displayName) (\(request.behavior.shortDescription))")
+                statusParts.append("\(request.shortcut.displayName) \(request.mode.shortDescription)")
             } catch {
-                didFail = true
+                failedModes.insert(request.mode)
                 statusParts.append("\(request.shortcut.displayName) failed: \(error.localizedDescription)")
             }
         }
 
-        viewModel.updateHotKeyStatus(statusParts.joined(separator: " · "), didFail: didFail)
+        viewModel.updateHotKeyStatus(statusParts.joined(separator: " · "), failedModes: failedModes)
     }
 }
 

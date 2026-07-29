@@ -4,8 +4,8 @@
 
 - `Flow2/` contains the macOS app source.
 - `Flow2/Flow2App.swift` defines the app entry point, scenes, and menu bar extra.
-- `Flow2/AppViewModel.swift` holds app state, recording flow, AI post-processing, and transcript history persistence.
-- `Flow2/AudioRecorder.swift`, `Flow2/OpenAITranscriptionClient.swift`, `Flow2/OpenAIEditingClient.swift`, and `Flow2/TextInsertionService.swift` contain the core services.
+- `Flow2/AppViewModel.swift` holds app state, the recording flow, the two dictation modes, translation, and transcript history persistence.
+- `Flow2/AudioRecorder.swift`, `Flow2/OpenAITranscriptionClient.swift`, `Flow2/OpenAITranslationClient.swift`, and `Flow2/TextInsertionService.swift` contain the core services.
 - `Flow2/SettingsView.swift` and `Flow2/ContentView.swift` contain the UI.
 - `Flow2/Assets.xcassets` stores app assets.
 - `Flow2.xcodeproj/` is the Xcode project. Update `project.pbxproj` when adding new source files.
@@ -32,7 +32,7 @@
 
 - Language: Swift with SwiftUI/AppKit integration.
 - Use 4-space indentation and keep files ASCII unless the file already needs Unicode.
-- Prefer clear type names like `TextInsertionService` and `OpenAIEditingClient`.
+- Prefer clear type names like `TextInsertionService` and `OpenAITranslationClient`.
 - Use `UpperCamelCase` for types and `lowerCamelCase` for methods, properties, and variables.
 - Keep UI logic in views and orchestration/state in `AppViewModel`.
 - Prefer small focused services over large multi-purpose files.

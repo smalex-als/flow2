@@ -1,26 +1,41 @@
 # Flow2
 
-> Native macOS push-to-talk dictation with OpenAI transcription, AI cleanup, and fast text insertion back into the app you were using.
+> Native macOS push-to-talk dictation with OpenAI transcription and fast text insertion back into
+> the app you were using. Two shortcuts, two modes: say it, or say it and get English.
+
+## Two Modes
+
+Which shortcut you hold decides what comes out. Push-to-talk gives you no chance to state the
+intent afterwards, so the mode is the key, not a setting.
+
+| Mode | Default shortcut | Result |
+| --- | --- | --- |
+| **Dictate** | `⇧⌘Space` | The transcript exactly as recognized, in the language you spoke |
+| **Dictate & Translate** | `⌃Space` | English, translated from what you said |
+
+`Dictate` never sends your text to a second model. `Dictate & Translate` only calls one when the
+transcript actually contains Russian — speak English into it and it stays out of the way.
+
+Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 
 ## Highlights
 
-- 🎙️ Hold a global hotkey to record, release to transcribe
-- ✨ Optional AI auto-editing with recent-message context
-- 🌍 Optional Russian-to-English translation when Cyrillic is detected
+- 🎙️ Hold a global shortcut to record, release to transcribe
+- 🌍 A dedicated shortcut that returns English
 - 📚 Preferred terms dictionary for names, products, and custom spellings
 - 📝 Native insertion for apps like Notes
 - 💻 Dedicated typing path for `Terminal` and `iTerm`
 - 📋 Paste fallback when direct insertion is not available
 - 🕘 Persistent transcript history with `Copy` and `Delete`
-- 🍎 Menu bar controls, custom global hotkeys, launch-at-login, and visible debug status
+- 🍎 Menu bar controls, launch-at-login, and visible debug status
 
 ## How It Works
 
-1. Press and hold the configured hotkey.
+1. Press and hold the shortcut for the mode you want.
 2. Speak.
-3. Release the hotkey.
+3. Release the shortcut.
 4. Flow2 transcribes the audio with OpenAI.
-5. If enabled, Flow2 runs AI post-processing on only the latest message.
+5. In `Dictate & Translate`, and only when the transcript contains Russian, Flow2 translates it.
 6. The result is saved into transcript history.
 7. Flow2 inserts the text back into the target app.
 
@@ -30,14 +45,16 @@
 
 - Endpoint: `POST /v1/audio/transcriptions`
 - Default model: `gpt-transcribe`
+- Runs for every recording, in both modes
 
-### 2. Optional AI post-processing
+### 2. Translation
 
+- Endpoint: `POST /v1/chat/completions`
 - Default model: `gpt-5.6-luna`
-- Uses only the latest message plus a limited recent-history context
-- Returns only the corrected latest message
-- Translation can run independently of transcript auto-editing
-- When enabled, translation forces English output when the raw transcript contains Cyrillic
+- Runs only in `Dictate & Translate`, and only when Cyrillic is present
+- Translates without correcting, rewriting, or summarizing
+- Uses a limited recent-history context only to resolve ambiguity
+- Retries with a stricter prompt if any Cyrillic survives the first pass
 - Accepts a preferred-terms list so the model gives priority to your spellings
 
 ### Preferred Terms Dictionary
@@ -51,7 +68,8 @@ iTerm2
 Flow2
 ```
 
-These terms are sent to `gpt-transcribe` as `keywords[]` hints and are also passed into enabled translation or auto-editing as authoritative spellings.
+These terms are sent to `gpt-transcribe` as `keywords[]` hints in both modes, and are passed into
+translation as authoritative spellings.
 
 ## Insertion Paths
 
@@ -76,23 +94,29 @@ swept on the next launch.
 
 The menu bar extra supports:
 
-- Start / stop recording
+- Start recording in either mode, with each mode's shortcut shown next to it
+- Stop the recording in flight
 - Show the main Flow2 window
 - Open Settings
-- Toggle `AI Auto-Edit`
-- Toggle `Translate RU -> EN`
 - Quit the app
 
 ## Settings
 
-Changes apply as you make them — there is no Save button, and the menu bar toggles and the
-settings window always show the same state. Typed fields (API key, dictionary) are written once
-typing settles, or when you leave the tab.
+Changes apply as you make them — there is no Save button, so the menu bar and the settings window
+can never disagree. Typed fields (API key, dictionary) are written once typing settles, or when
+you leave the tab.
 
-- **General** — OpenAI API key, post-processing model, `Clean up transcripts`,
-  `Translate Russian to English`, `Launch Flow2 at login`
+- **General** — OpenAI API key, translation model, `Launch Flow2 at login`
 - **Dictionary** — preferred terms, one per line
-- **Shortcuts** — the push-to-talk shortcut, plus an optional second one that skips translation
+- **Shortcuts** — one shortcut per mode; each refuses a combination the other already owns
+
+### Upgrading from an earlier version
+
+Configurations written before the two-mode split are migrated on first launch. Your old main
+shortcut keeps the mode it used to produce: if `Auto-translate Russian to English` was on it
+becomes `Dictate & Translate`, otherwise it becomes `Dictate`, and the old no-translate shortcut
+takes the other mode. `Auto-edit transcript with AI` no longer exists — `Dictate` returns the raw
+transcript.
 
 ## Permissions
 
@@ -133,7 +157,7 @@ make run CONFIGURATION=Release
 - `Flow2/AppViewModel.swift`: recording/transcription flow, AI logic, history, status
 - `Flow2/AudioRecorder.swift`: audio capture and stop finalization
 - `Flow2/OpenAITranscriptionClient.swift`: multipart transcription request
-- `Flow2/OpenAIEditingClient.swift`: AI rewrite and translation step
+- `Flow2/OpenAITranslationClient.swift`: translation step for `Dictate & Translate`
 - `Flow2/TextInsertionService.swift`: native insertion, terminal typing, paste fallback
 - `Flow2/SettingsView.swift`: settings UI
 - `Flow2/ContentView.swift`: main window, transcript list, debug/status UI

@@ -58,20 +58,16 @@ private struct GeneralSettingsTab: View {
             }
 
             Section {
-                Toggle("Clean up transcripts", isOn: viewModel.binding(\.enableAIEditing))
-                Toggle("Translate Russian to English", isOn: viewModel.binding(\.autoTranslateRussianToEnglish))
-
-                Picker("Model", selection: viewModel.binding(\.editingModel)) {
-                    ForEach(EditingModelPreset.allCases) { preset in
+                Picker("Model", selection: viewModel.binding(\.translationModel)) {
+                    ForEach(TranslationModelPreset.allCases) { preset in
                         Text(preset.displayName).tag(preset)
                     }
                 }
-                .disabled(!isPostProcessingEnabled)
             } header: {
-                Text("Post-processing")
+                Text("Translation")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(postProcessingSummary)
+                    Text("Used only by the **Dictate & Translate** shortcut, and only when the transcript contains Russian. Plain dictation never sends the text to a second model.")
                     Text("Luna is the fastest, Terra balances speed and quality, Sol is the most accurate.")
                 }
             }
@@ -104,22 +100,6 @@ private struct GeneralSettingsTab: View {
         }
     }
 
-    private var isPostProcessingEnabled: Bool {
-        viewModel.configuration.enableAIEditing || viewModel.configuration.autoTranslateRussianToEnglish
-    }
-
-    private var postProcessingSummary: String {
-        switch (viewModel.configuration.enableAIEditing, viewModel.configuration.autoTranslateRussianToEnglish) {
-        case (true, true):
-            return "Transcripts are corrected, and Russian speech comes back as English."
-        case (true, false):
-            return "Transcripts are corrected in the language you spoke."
-        case (false, true):
-            return "Russian speech comes back as English, otherwise the transcript is left as recognized."
-        case (false, false):
-            return "Transcripts are inserted exactly as recognized. No second model runs."
-        }
-    }
 }
 
 // MARK: - Dictionary
@@ -198,25 +178,14 @@ private struct ShortcutsSettingsTab: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Dictate") {
-                    HotKeyRecorderView(shortcut: primaryShortcut)
+                LabeledContent("Dictate & Translate") {
+                    HotKeyRecorderView(shortcut: shortcut(for: .translate))
                         .frame(width: 170)
                 }
-            } header: {
-                Text("Shortcut")
-            } footer: {
-                Text("Hold to record, release to transcribe. Click the field, then press a combination that includes ⌃, ⌥, ⇧, or ⌘. Escape cancels.")
-            }
 
-            Section {
-                Toggle("Use a second shortcut", isOn: viewModel.binding(\.enableNoTranslateHotKey))
-
-                LabeledContent("Dictate without translating") {
-                    HotKeyRecorderView(
-                        shortcut: secondaryShortcut,
-                        isEnabled: viewModel.configuration.enableNoTranslateHotKey
-                    )
-                    .frame(width: 170)
+                LabeledContent("Dictate") {
+                    HotKeyRecorderView(shortcut: shortcut(for: .dictate))
+                        .frame(width: 170)
                 }
 
                 if let conflictMessage {
@@ -225,44 +194,39 @@ private struct ShortcutsSettingsTab: View {
                         .foregroundStyle(.red)
                 }
             } header: {
-                Text("Skip translation")
+                Text("Push to talk")
             } footer: {
-                Text("The main shortcut follows the translation setting in General. This one always returns the transcript in the language you spoke.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("**Dictate & Translate** returns English when you speak Russian. **Dictate** always returns the language you spoke, untouched.")
+                    Text("Hold to record, release to transcribe. Click a field, then press a combination that includes ⌃, ⌥, ⇧, or ⌘. Escape cancels.")
+                }
             }
         }
         .formStyle(.grouped)
     }
 
-    private var primaryShortcut: Binding<HotKeyShortcut> {
+    /// Each mode refuses a combination the other one already owns, so neither can silently shadow
+    /// the other and leave a mode unreachable.
+    private func shortcut(for mode: DictationMode) -> Binding<HotKeyShortcut> {
         Binding(
-            get: { viewModel.configuration.hotKey },
+            get: { viewModel.configuration.hotKey(for: mode) },
             set: { newValue in
-                conflictMessage = nil
-                Task {
-                    await viewModel.updateConfiguration { configuration in
-                        configuration.hotKey = newValue
-                        // The main shortcut wins; the second one steps aside instead of blocking it.
-                        if configuration.noTranslateHotKey == newValue {
-                            configuration.noTranslateHotKey = AppConfiguration.fallbackNoTranslateHotKey(avoiding: newValue)
-                        }
-                    }
-                }
-            }
-        )
-    }
-
-    private var secondaryShortcut: Binding<HotKeyShortcut> {
-        Binding(
-            get: { viewModel.configuration.noTranslateHotKey },
-            set: { newValue in
-                guard newValue != viewModel.configuration.hotKey else {
-                    conflictMessage = "\(newValue.displayName) is already the main dictation shortcut."
+                let other: DictationMode = mode == .dictate ? .translate : .dictate
+                guard newValue != viewModel.configuration.hotKey(for: other) else {
+                    conflictMessage = "\(newValue.displayName) is already used by \(other.title)."
                     return
                 }
 
                 conflictMessage = nil
                 Task {
-                    await viewModel.updateConfiguration { $0.noTranslateHotKey = newValue }
+                    await viewModel.updateConfiguration { configuration in
+                        switch mode {
+                        case .dictate:
+                            configuration.dictateHotKey = newValue
+                        case .translate:
+                            configuration.translateHotKey = newValue
+                        }
+                    }
                 }
             }
         )

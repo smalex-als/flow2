@@ -1,6 +1,6 @@
 import Foundation
 
-enum OpenAIEditingError: LocalizedError {
+enum OpenAITranslationError: LocalizedError {
     case invalidResponse
     case requestFailed(String)
     case emptyChoice
@@ -9,18 +9,18 @@ enum OpenAIEditingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "The AI post-processing API returned an invalid response."
+            return "The translation API returned an invalid response."
         case .requestFailed(let message):
             return message
         case .emptyChoice:
-            return "The AI post-processing API returned an empty message."
+            return "The translation API returned an empty message."
         case .timedOut:
-            return "The AI post-processing request timed out."
+            return "The translation request timed out."
         }
     }
 }
 
-final class OpenAIEditingClient {
+final class OpenAITranslationClient {
     private static let requestTimeout: TimeInterval = 180
     private static let resourceTimeout: TimeInterval = 300
 
@@ -57,7 +57,7 @@ final class OpenAIEditingClient {
         let choices: [Choice]
     }
 
-    func processLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], model: String, enableEditing: Bool, translateToEnglish: Bool, apiKey: String) async throws -> String {
+    func translateLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], model: String, apiKey: String) async throws -> String {
         let trimmedLatestMessage = latestMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLatestMessage.isEmpty else {
             return trimmedLatestMessage
@@ -69,53 +69,21 @@ final class OpenAIEditingClient {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let systemPrompt: String
-        switch (enableEditing, translateToEnglish) {
-        case (true, true):
-            systemPrompt = """
-            You edit only the latest user message using the previous messages for context.
-            Return only the rewritten latest message in English.
-            Fix recognition mistakes, punctuation, grammar, and wording, keep the user's meaning, and translate the final result to natural English.
-            Treat the preferred terms list as authoritative. If the latest message seems to refer to one of those terms, prefer that spelling in the final answer.
-            The final answer must be English only. Do not output Russian or any Cyrillic characters.
-            Do not add explanations, quotes, prefixes, labels, or extra lines.
-            """
-        case (true, false):
-            systemPrompt = """
-            You edit only the latest user message using the previous messages for context.
-            Return only the rewritten latest message.
-            Preserve the original language unless the text itself clearly requests translation.
-            Fix recognition mistakes, punctuation, grammar, and wording, but keep the user's meaning.
-            Treat the preferred terms list as authoritative. If the latest message seems to refer to one of those terms, prefer that spelling in the final answer.
-            Do not add explanations, quotes, prefixes, labels, or extra lines.
-            """
-        case (false, true):
-            systemPrompt = """
-            Translate only the latest user message from Russian into natural English, using the previous messages only to resolve context.
-            Preserve the meaning, tone, emphasis, names, numbers, and formatting of the latest message.
-            Do not correct, rewrite, summarize, or add information beyond changes required for an accurate natural translation.
-            Treat the preferred terms list as authoritative.
-            Return English only. Do not output Russian or any Cyrillic characters.
-            Do not add explanations, quotes, prefixes, labels, or extra lines.
-            """
-        case (false, false):
-            return trimmedLatestMessage
-        }
+        let systemPrompt = """
+        Translate only the latest user message from Russian into natural English, using the previous messages only to resolve context.
+        Preserve the meaning, tone, emphasis, names, numbers, and formatting of the latest message.
+        Do not correct, rewrite, summarize, or add information beyond changes required for an accurate natural translation.
+        Treat the preferred terms list as authoritative.
+        Return English only. Do not output Russian or any Cyrillic characters.
+        Do not add explanations, quotes, prefixes, labels, or extra lines.
+        """
 
-        let strictEnglishRetryPrompt = enableEditing
-            ? """
-              Rewrite only the latest message in natural English.
-              Return one plain sentence or paragraph in English only.
-              Treat the preferred terms list as authoritative.
-              Do not output Russian or any Cyrillic characters.
-              Do not add explanations, quotes, prefixes, labels, or extra lines.
-              """
-            : """
-              Translate only the latest message from Russian into natural English.
-              Preserve its meaning, tone, names, numbers, and formatting without rewriting or adding information.
-              Return English only. Do not output Russian or any Cyrillic characters.
-              Do not add explanations, quotes, prefixes, labels, or extra lines.
-              """
+        let strictEnglishRetryPrompt = """
+        Translate only the latest message from Russian into natural English.
+        Preserve its meaning, tone, names, numbers, and formatting without rewriting or adding information.
+        Return English only. Do not output Russian or any Cyrillic characters.
+        Do not add explanations, quotes, prefixes, labels, or extra lines.
+        """
 
         let previousContext = previousMessages.enumerated().map { index, message in
             "\(index + 1). \(message)"
@@ -170,7 +138,7 @@ final class OpenAIEditingClient {
             userPrompt: userPrompt
         )
 
-        if translateToEnglish, containsCyrillic(content) {
+        if containsCyrillic(content) {
             return try await performRequest(
                 request: request,
                 model: model,
@@ -203,23 +171,23 @@ final class OpenAIEditingClient {
             defer { session.finishTasksAndInvalidate() }
             (data, response) = try await session.data(for: request)
         } catch let error as URLError where error.code == .timedOut {
-            throw OpenAIEditingError.timedOut
+            throw OpenAITranslationError.timedOut
         } catch {
             throw error
         }
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAIEditingError.invalidResponse
+            throw OpenAITranslationError.invalidResponse
         }
 
         guard (200 ..< 300).contains(httpResponse.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
-            throw OpenAIEditingError.requestFailed(message)
+            throw OpenAITranslationError.requestFailed(message)
         }
 
         let decoded = try JSONDecoder().decode(ResponseBody.self, from: data)
         guard let content = decoded.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines),
               !content.isEmpty else {
-            throw OpenAIEditingError.emptyChoice
+            throw OpenAITranslationError.emptyChoice
         }
 
         return content
