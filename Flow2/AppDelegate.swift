@@ -7,9 +7,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var registeredShortcuts: [HotKeyShortcut]?
     private weak var viewModel: AppViewModel?
     private var configurationObserver: NSObjectProtocol?
+    private var windowObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        // Closing is caught per window, but opening is not: an accessory app's window does not
+        // become key on its own, so the activation that the menu bar performs alongside it is what
+        // signals a window is on screen again.
+        let triggers: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.willCloseNotification,
+            NSApplication.didBecomeActiveNotification
+        ]
+
+        for name in triggers {
+            windowObservers.append(
+                NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                    // At willClose the window is still listed and still visible, so the decision has
+                    // to wait for the run loop to catch up with the close.
+                    Task { @MainActor in
+                        AppDelegate.updateActivationPolicy()
+                    }
+                }
+            )
+        }
+
+        Self.updateActivationPolicy()
+    }
+
+    /// Dictation is a menu bar job, so Flow2 stays out of the Dock and the app switcher while it is
+    /// only listening for a shortcut. An open window makes it a regular app again — without that,
+    /// `.accessory` costs the menu bar, and with it the editing shortcuts that Settings needs to
+    /// paste an API key.
+    private static func updateActivationPolicy() {
+        let hasVisibleWindow = NSApp.windows.contains { window in
+            window.isVisible && window.styleMask.contains(.titled) && !(window is NSPanel)
+        }
+
+        let policy: NSApplication.ActivationPolicy = hasVisibleWindow ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+
+        NSApp.setActivationPolicy(policy)
+        if policy == .regular {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     func installHotKeyIfNeeded(using viewModel: AppViewModel) {

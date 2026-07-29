@@ -93,6 +93,10 @@ swept on the next launch.
 
 ## Menu Bar
 
+Flow2 lives in the menu bar. With no window open it stays out of the Dock and out of `⌘Tab`,
+and closing its last window puts it back there. While a window *is* open it behaves as an ordinary
+app, which is what keeps the menu bar — and with it `⌘V` in the API key field — working.
+
 The menu bar extra supports:
 
 - Start recording in either mode, with each mode's shortcut shown next to it
