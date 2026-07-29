@@ -61,6 +61,17 @@ Flow2 tries the most appropriate path for the current app:
 2. Terminal typing path for `Terminal` and `iTerm`
 3. Pasteboard + synthetic `Cmd+V` fallback
 
+The paste path restores whatever you had on the clipboard once the target app has read the
+transcript, so dictating never costs you the thing you copied. If you copy something new while
+the paste is in flight, your new clipboard wins and nothing is put back.
+
+## Recordings on Disk
+
+Audio is temporary. A recording is deleted as soon as transcription succeeds, and is only kept
+while a `Failed Recording` entry in history can still retry it — deleting that entry, or letting
+it age out of history, removes the file too. Anything left over from a crash or force quit is
+swept on the next launch.
+
 ## Menu Bar
 
 The menu bar extra supports:

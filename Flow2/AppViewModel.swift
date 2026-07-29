@@ -68,6 +68,8 @@ enum AppWorkflowPhase: Equatable {
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    private static let maxHistoryItems = 12
+
     @Published var configuration = AppConfiguration()
     @Published var transcript = ""
     @Published var statusText = "Ready"
@@ -224,6 +226,7 @@ final class AppViewModel: ObservableObject {
 
     func deleteHistoryItem(_ item: TranscriptHistoryItem) {
         transcriptHistory.removeAll { $0.id == item.id }
+        discardRecording(for: item)
 
         do {
             try historyStore.save(transcriptHistory)
@@ -393,6 +396,7 @@ final class AppViewModel: ObservableObject {
         )
 
         appendLog("Transcription complete: \(rawText.count) chars")
+        RecordingFileStore.delete(at: fileURL)
         if let replacingHistoryItemID {
             transcriptHistory.removeAll { $0.id == replacingHistoryItemID }
             saveHistory()
@@ -434,9 +438,7 @@ final class AppViewModel: ObservableObject {
 
     private func insertFailedHistoryItem(fileURL: URL, reason: String) {
         transcriptHistory.insert(TranscriptHistoryItem.failedRecording(fileURL: fileURL, reason: reason), at: 0)
-        if transcriptHistory.count > 12 {
-            transcriptHistory.removeLast(transcriptHistory.count - 12)
-        }
+        trimHistory()
         saveHistory()
         appendLog("Saved failed recording for manual retry: \(fileURL.lastPathComponent)")
     }
@@ -462,11 +464,36 @@ final class AppViewModel: ObservableObject {
         guard !trimmed.isEmpty else { return }
 
         transcriptHistory.insert(TranscriptHistoryItem(text: trimmed), at: 0)
-        if transcriptHistory.count > 12 {
-            transcriptHistory.removeLast(transcriptHistory.count - 12)
-        }
-
+        trimHistory()
         saveHistory()
+    }
+
+    /// Drops the oldest entries past the cap, taking any recording they were still holding with them.
+    private func trimHistory() {
+        let overflow = transcriptHistory.count - Self.maxHistoryItems
+        guard overflow > 0 else { return }
+
+        let dropped = transcriptHistory.suffix(overflow)
+        transcriptHistory.removeLast(overflow)
+        dropped.forEach(discardRecording(for:))
+    }
+
+    private func discardRecording(for item: TranscriptHistoryItem) {
+        guard let path = item.failedRecordingFilePath else { return }
+        RecordingFileStore.delete(at: URL(fileURLWithPath: path))
+    }
+
+    /// Clears recordings left behind by earlier versions, crashes, or force quits. Only entries still
+    /// offering `Retry` are kept, so a run that ends normally leaves nothing on disk.
+    func pruneOrphanedRecordings() {
+        guard workflowPhase == .idle else { return }
+
+        let retainedPaths = Set(transcriptHistory.compactMap(\.failedRecordingFilePath))
+        let removed = RecordingFileStore.pruneOrphans(keeping: retainedPaths)
+        guard removed.count > 0 else { return }
+
+        let freed = ByteCountFormatter.string(fromByteCount: removed.bytes, countStyle: .file)
+        appendLog("Removed \(removed.count) orphaned recording(s), freed \(freed)")
     }
 
     private func saveHistory() {

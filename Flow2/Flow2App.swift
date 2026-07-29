@@ -11,6 +11,7 @@ struct Flow2App: App {
                 .environmentObject(viewModel)
                 .task {
                     await viewModel.loadConfiguration()
+                    viewModel.pruneOrphanedRecordings()
                     appDelegate.installHotKeyIfNeeded(using: viewModel)
                 }
         }

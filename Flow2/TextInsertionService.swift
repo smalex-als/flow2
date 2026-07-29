@@ -32,8 +32,44 @@ enum TextInsertionError: LocalizedError {
     }
 }
 
+/// Everything the general pasteboard held before Flow2 overwrote it, so the user's own clipboard
+/// can be put back after the synthetic paste.
+private struct PasteboardSnapshot {
+    private let items: [[NSPasteboard.PasteboardType: Data]]
+
+    var isEmpty: Bool { items.isEmpty }
+
+    init(of pasteboard: NSPasteboard) {
+        // Promised and lazily provided types return nil data and are dropped: they cannot be
+        // reconstructed without the originating app, and a partial restore beats none.
+        items = (pasteboard.pasteboardItems ?? [])
+            .map { item in
+                item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { contents, type in
+                    contents[type] = item.data(forType: type)
+                }
+            }
+            .filter { !$0.isEmpty }
+    }
+
+    func write(to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        guard !isEmpty else { return }
+
+        pasteboard.writeObjects(items.map { contents in
+            let item = NSPasteboardItem()
+            for (type, data) in contents {
+                item.setData(data, forType: type)
+            }
+            return item
+        })
+    }
+}
+
 @MainActor
 final class TextInsertionService {
+    /// How long the transcript stays on the pasteboard after Cmd+V is posted.
+    private static let pasteSettleDelay = Duration.milliseconds(250)
+
     func isAccessibilityTrusted() -> Bool {
         AXIsProcessTrusted()
     }
@@ -222,12 +258,8 @@ final class TextInsertionService {
         let pasteboard = NSPasteboard.general
         let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
 
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-
-        // Give the pasteboard server time to propagate before the target app reads it.
-        try? await Task.sleep(for: .milliseconds(40))
-
+        // The keystrokes are built before the pasteboard is touched, so no failure can leave the
+        // transcript sitting on the user's clipboard in place of what they had copied.
         let eventSourceState = CGEventSourceStateID.combinedSessionState
         guard let source = CGEventSource(stateID: eventSourceState) else {
             throw TextInsertionError.eventSourceUnavailable
@@ -244,11 +276,22 @@ final class TextInsertionService {
         vDown.flags = CGEventFlags.maskCommand
         vUp.flags = CGEventFlags.maskCommand
 
+        let snapshot = PasteboardSnapshot(of: pasteboard)
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        let ownedChangeCount = pasteboard.changeCount
+
+        // Give the pasteboard server time to propagate before the target app reads it.
+        try? await Task.sleep(for: .milliseconds(40))
+
         try postPasteShortcut(commandDown: commandDown, vDown: vDown, vUp: vUp, commandUp: commandUp, tap: .cghidEventTap)
 
-        try? await Task.sleep(for: .seconds(2))
+        // The target app reads the pasteboard while handling the synthetic Cmd+V, so the previous
+        // contents can only go back once that read has had a chance to happen.
+        try? await Task.sleep(for: Self.pasteSettleDelay)
+        let restoration = restorePasteboard(snapshot, to: pasteboard, ifChangeCountIs: ownedChangeCount)
 
-        return "Paste path executed: app=\(frontmostAppName), pasteboard set to transcript, Cmd+V posted via hID tap, pasteboard retained"
+        return "Paste path executed: app=\(frontmostAppName), pasteboard set to transcript, Cmd+V posted via hID tap, settleDelay=\(Self.pasteSettleDelay), \(restoration)"
     }
 
     private func typeText(_ text: String, targetApp: NSRunningApplication?) async throws -> String {
@@ -278,6 +321,21 @@ final class TextInsertionService {
 
         try? await Task.sleep(for: .milliseconds(80))
         return "Terminal typing path executed: app=\(frontmostAppName), unicode keystrokes posted, textLength=\(text.count)"
+    }
+
+    /// Restores the snapshot only while Flow2 still owns the pasteboard: a bumped change count means
+    /// the user or another app copied something after the transcript, and that must win.
+    private func restorePasteboard(_ snapshot: PasteboardSnapshot, to pasteboard: NSPasteboard, ifChangeCountIs ownedChangeCount: Int) -> String {
+        guard pasteboard.changeCount == ownedChangeCount else {
+            return "pasteboard left as-is (changed by another app during paste)"
+        }
+
+        guard !snapshot.isEmpty else {
+            return "pasteboard cleared (nothing to restore)"
+        }
+
+        snapshot.write(to: pasteboard)
+        return "previous pasteboard contents restored"
     }
 
     private func postPasteShortcut(commandDown: CGEvent, vDown: CGEvent, vUp: CGEvent, commandUp: CGEvent, tap: CGEventTapLocation) throws {

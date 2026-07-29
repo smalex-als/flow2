@@ -24,6 +24,48 @@ enum AudioRecorderError: LocalizedError {
     }
 }
 
+/// Owns the on-disk lifetime of recorded audio. A recording is only kept while something can still
+/// consume it: until transcription succeeds, or until the failed-recording entry offering `Retry`
+/// is gone from history.
+enum RecordingFileStore {
+    static let directory: URL = {
+        let base = AppStoragePaths.baseDirectory.appendingPathComponent("Recordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }()
+
+    static func delete(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Deletes every recording no history entry can still retry, including leftovers from earlier
+    /// runs that crashed or were killed mid-flow.
+    @discardableResult
+    static func pruneOrphans(keeping retainedPaths: Set<String>) -> (count: Int, bytes: Int64) {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        var count = 0
+        var bytes: Int64 = 0
+
+        for url in contents where !retainedPaths.contains(url.path) {
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            do {
+                try FileManager.default.removeItem(at: url)
+                count += 1
+                bytes += Int64(size)
+            } catch {
+                continue
+            }
+        }
+
+        return (count, bytes)
+    }
+}
+
 @MainActor
 final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     private var recorder: AVAudioRecorder?
@@ -36,7 +78,7 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             throw AudioRecorderError.microphonePermissionDenied
         }
 
-        let fileURL = Self.recordingsDirectory()
+        let fileURL = RecordingFileStore.directory
             .appendingPathComponent("recording-\(UUID().uuidString).m4a")
 
         let settings: [String: Any] = [
@@ -69,6 +111,7 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             recorder.stop()
             self.recorder = nil
             self.currentFileURL = nil
+            RecordingFileStore.delete(at: currentFileURL)
             throw AudioRecorderError.recordingTooShort
         }
 
@@ -92,14 +135,6 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             finishContinuation?.resume(returning: flag)
             finishContinuation = nil
         }
-    }
-
-    private static func recordingsDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Flow2", isDirectory: true)
-            .appendingPathComponent("Recordings", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base
     }
 
     private static func ensureMicrophonePermission() async -> Bool {
