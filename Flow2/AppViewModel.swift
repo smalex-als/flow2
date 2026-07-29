@@ -76,6 +76,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var workflowPhase: AppWorkflowPhase = .idle
     @Published var isShowingMissingKeyAlert = false
     @Published var hotKeyStatus = "Hotkey not registered"
+    @Published var hotKeyRegistrationFailed = false
     @Published var insertionStatus = "Auto-paste after transcription is enabled"
     @Published var accessibilityStatus = "Accessibility status unknown"
     @Published var appBundlePath = Bundle.main.bundleURL.path
@@ -203,8 +204,9 @@ final class AppViewModel: ObservableObject {
         await stopRecording()
     }
 
-    func updateHotKeyStatus(_ text: String) {
+    func updateHotKeyStatus(_ text: String, didFail: Bool) {
         hotKeyStatus = text
+        hotKeyRegistrationFailed = didFail
     }
 
     func copyTranscript() {

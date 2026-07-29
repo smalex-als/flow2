@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         var statusParts: [String] = []
+        var didFail = false
 
         for request in requests {
             let manager = GlobalHotKeyManager(shortcut: request.shortcut, hotKeyID: request.id)
@@ -64,11 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hotKeyManagers.append(manager)
                 statusParts.append("\(request.shortcut.displayName) (\(request.behavior.shortDescription))")
             } catch {
+                didFail = true
                 statusParts.append("\(request.shortcut.displayName) failed: \(error.localizedDescription)")
             }
         }
 
-        viewModel.updateHotKeyStatus(statusParts.joined(separator: " · "))
+        viewModel.updateHotKeyStatus(statusParts.joined(separator: " · "), didFail: didFail)
     }
 }
 

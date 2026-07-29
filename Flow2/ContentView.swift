@@ -53,10 +53,9 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
-                    statusChip(title: viewModel.configuration.hotKey.displayName, systemImage: "keyboard")
+                    hotKeyChip
                     statusChip(title: viewModel.configuration.enableAIEditing ? "AI Edit On" : "AI Edit Off", systemImage: "sparkles")
                     statusChip(title: viewModel.configuration.autoTranslateRussianToEnglish ? "Translate On" : "Translate Off", systemImage: "character.book.closed")
-                    statusChip(title: "\(viewModel.transcriptHistory.count) Saved", systemImage: "text.quote")
                 }
             }
 
@@ -209,7 +208,6 @@ struct ContentView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
                     footerInfoCard(title: "Transcription", value: transcriptionModelLabel, systemImage: "waveform")
                     footerInfoCard(title: "AI Post-Processing", value: aiPostProcessingModelLabel, systemImage: "sparkles")
-                    footerInfoCard(title: "Hotkey", value: viewModel.hotKeyStatus, systemImage: "keyboard")
                     footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
                     footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
                 }
@@ -280,13 +278,26 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func statusChip(title: String, systemImage: String) -> some View {
+    /// Carries the registration outcome rather than the configured shortcut alone, so a hotkey the
+    /// system refused is visible without opening Diagnostics. The full status stays in the tooltip.
+    private var hotKeyChip: some View {
+        let failed = viewModel.hotKeyRegistrationFailed
+
+        return statusChip(
+            title: failed ? "Hotkey unavailable" : viewModel.configuration.hotKey.displayName,
+            systemImage: failed ? "exclamationmark.triangle.fill" : "keyboard",
+            tint: failed ? .orange : nil
+        )
+        .help(viewModel.hotKeyStatus)
+    }
+
+    private func statusChip(title: String, systemImage: String, tint: Color? = nil) -> some View {
         Label(title, systemImage: systemImage)
             .font(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(tint ?? Color.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.1))
+            .background((tint ?? Color.secondary).opacity(tint == nil ? 0.1 : 0.15))
             .clipShape(Capsule())
     }
 
