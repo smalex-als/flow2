@@ -31,7 +31,7 @@ struct SettingsView: View {
                 .padding(.vertical, 10)
             }
         }
-        .frame(width: 540, height: 512)
+        .frame(width: 540, height: 566)
     }
 }
 
@@ -58,6 +58,19 @@ private struct GeneralSettingsTab: View {
             }
 
             Section {
+                Picker("From", selection: viewModel.binding(\.translationSourceLanguage)) {
+                    Text("Any language").tag(TranslationLanguage?.none)
+                    ForEach(TranslationLanguage.allCases) { language in
+                        Text(language.displayName).tag(TranslationLanguage?.some(language))
+                    }
+                }
+
+                Picker("To", selection: viewModel.binding(\.translationTargetLanguage)) {
+                    ForEach(TranslationLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+
                 Picker("Model", selection: viewModel.binding(\.translationModel)) {
                     ForEach(TranslationModelPreset.allCases) { preset in
                         Text(preset.displayName).tag(preset)
@@ -67,7 +80,8 @@ private struct GeneralSettingsTab: View {
                 Text("Translation")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Used only by the **Dictate & Translate** shortcut, and only when the transcript contains Russian. Plain dictation never sends the text to a second model.")
+                    Text("Runs every time you hold the **Dictate & Translate** shortcut. Plain dictation never sends the text to a second model.")
+                    Text("**Any language** lets the model work out what you spoke, and leaves the text alone if it is already \(viewModel.configuration.translationTargetLanguage.displayName).")
                     Text("Luna is the fastest, Terra balances speed and quality, Sol is the most accurate.")
                 }
             }
@@ -99,7 +113,6 @@ private struct GeneralSettingsTab: View {
             Task { await viewModel.updateConfiguration { $0.apiKey = apiKey } }
         }
     }
-
 }
 
 // MARK: - Dictionary
@@ -133,7 +146,7 @@ private struct DictionarySettingsTab: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("One term per line, for names, products, and spellings that get recognized wrong.")
-                    Text("Sent to \(OpenAITranscriptionClient.model) as keyword hints, and treated as authoritative spellings by translation and cleanup.")
+                    Text("Sent to \(OpenAITranscriptionClient.model) as keyword hints in both modes, and treated as authoritative spellings during translation.")
                 }
             }
         }

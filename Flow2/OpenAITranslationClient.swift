@@ -57,7 +57,7 @@ final class OpenAITranslationClient {
         let choices: [Choice]
     }
 
-    func translateLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], model: String, apiKey: String) async throws -> String {
+    func translateLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], model: String, sourceLanguage: TranslationLanguage?, targetLanguage: TranslationLanguage, apiKey: String) async throws -> String {
         let trimmedLatestMessage = latestMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLatestMessage.isEmpty else {
             return trimmedLatestMessage
@@ -69,19 +69,20 @@ final class OpenAITranslationClient {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        let target = targetLanguage.displayName
+        let sourceClause = sourceLanguage.map { "from \($0.displayName) " } ?? ""
+        // Without a declared source the model has to identify the language itself, and text already
+        // in the target has to survive untouched rather than be paraphrased.
+        let passthroughClause = sourceLanguage == nil
+            ? "If the latest message is already in \(target), return it unchanged.\n"
+            : ""
+
         let systemPrompt = """
-        Translate only the latest user message from Russian into natural English, using the previous messages only to resolve context.
-        Preserve the meaning, tone, emphasis, names, numbers, and formatting of the latest message.
+        Translate only the latest user message \(sourceClause)into natural \(target), using the previous messages only to resolve context.
+        \(passthroughClause)Preserve the meaning, tone, emphasis, names, numbers, and formatting of the latest message.
         Do not correct, rewrite, summarize, or add information beyond changes required for an accurate natural translation.
         Treat the preferred terms list as authoritative.
-        Return English only. Do not output Russian or any Cyrillic characters.
-        Do not add explanations, quotes, prefixes, labels, or extra lines.
-        """
-
-        let strictEnglishRetryPrompt = """
-        Translate only the latest message from Russian into natural English.
-        Preserve its meaning, tone, names, numbers, and formatting without rewriting or adding information.
-        Return English only. Do not output Russian or any Cyrillic characters.
+        Return \(target) only.
         Do not add explanations, quotes, prefixes, labels, or extra lines.
         """
 
@@ -131,23 +132,12 @@ final class OpenAITranslationClient {
             """
         }
 
-        let content = try await performRequest(
+        return try await performRequest(
             request: request,
             model: model,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt
         )
-
-        if containsCyrillic(content) {
-            return try await performRequest(
-                request: request,
-                model: model,
-                systemPrompt: strictEnglishRetryPrompt,
-                userPrompt: userPrompt
-            )
-        }
-
-        return content
     }
 
     private func performRequest(request: URLRequest, model: String, systemPrompt: String, userPrompt: String) async throws -> String {
@@ -204,9 +194,4 @@ final class OpenAITranslationClient {
         return URLSession(configuration: configuration)
     }
 
-    private func containsCyrillic(_ text: String) -> Bool {
-        text.unicodeScalars.contains { scalar in
-            (0x0400 ... 0x04FF).contains(scalar.value) || (0x0500 ... 0x052F).contains(scalar.value)
-        }
-    }
 }

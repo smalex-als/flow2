@@ -1,5 +1,52 @@
 import Foundation
 
+enum TranslationLanguage: String, Codable, CaseIterable, Identifiable {
+    case english = "en"
+    case russian = "ru"
+    case ukrainian = "uk"
+    case spanish = "es"
+    case portuguese = "pt"
+    case french = "fr"
+    case german = "de"
+    case italian = "it"
+    case dutch = "nl"
+    case polish = "pl"
+    case turkish = "tr"
+    case arabic = "ar"
+    case hebrew = "he"
+    case hindi = "hi"
+    case chinese = "zh"
+    case japanese = "ja"
+    case korean = "ko"
+
+    var id: String { rawValue }
+
+    var shortCode: String { rawValue.uppercased() }
+
+    /// Also the name given to the model, so it stays in English rather than following the locale.
+    var displayName: String {
+        switch self {
+        case .english: return "English"
+        case .russian: return "Russian"
+        case .ukrainian: return "Ukrainian"
+        case .spanish: return "Spanish"
+        case .portuguese: return "Portuguese"
+        case .french: return "French"
+        case .german: return "German"
+        case .italian: return "Italian"
+        case .dutch: return "Dutch"
+        case .polish: return "Polish"
+        case .turkish: return "Turkish"
+        case .arabic: return "Arabic"
+        case .hebrew: return "Hebrew"
+        case .hindi: return "Hindi"
+        case .chinese: return "Simplified Chinese"
+        case .japanese: return "Japanese"
+        case .korean: return "Korean"
+        }
+    }
+}
+
 enum TranslationModelPreset: String, Codable, CaseIterable, Identifiable {
     case gpt56Luna = "gpt-5.6-luna"
     case gpt56Terra = "gpt-5.6-terra"
@@ -71,6 +118,8 @@ struct AppConfiguration: Codable, Equatable {
         case configVersion
         case apiKey
         case translationModel
+        case translationSourceLanguage
+        case translationTargetLanguage
         case preferredTerms
         case translateHotKey
         case dictateHotKey
@@ -86,7 +135,7 @@ struct AppConfiguration: Codable, Equatable {
         case noTranslateHotKeyPreset
     }
 
-    static let currentConfigVersion = 7
+    static let currentConfigVersion = 8
     static let defaultTranslationModel: TranslationModelPreset = .gpt56Luna
     static let defaultTranslateHotKey: HotKeyShortcut = .controlSpace
     static let defaultDictateHotKey: HotKeyShortcut = .shiftCommandSpace
@@ -94,6 +143,9 @@ struct AppConfiguration: Codable, Equatable {
     var configVersion = Self.currentConfigVersion
     var apiKey = ""
     var translationModel = Self.defaultTranslationModel
+    /// `nil` means any language: the model detects it and leaves text already in the target alone.
+    var translationSourceLanguage: TranslationLanguage?
+    var translationTargetLanguage: TranslationLanguage = .english
     var preferredTerms: [String] = []
     var translateHotKey: HotKeyShortcut = Self.defaultTranslateHotKey
     var dictateHotKey: HotKeyShortcut = Self.defaultDictateHotKey
@@ -113,6 +165,15 @@ struct AppConfiguration: Codable, Equatable {
             ?? container.decodeIfPresent(TranslationModelPreset.self, forKey: .editingModel)
             ?? Self.defaultTranslationModel
         translationModel = decodedConfigVersion < 3 ? decodedModel.currentEquivalent : decodedModel
+
+        translationTargetLanguage = try container.decodeIfPresent(TranslationLanguage.self, forKey: .translationTargetLanguage) ?? .english
+        if let decodedSource = try container.decodeIfPresent(TranslationLanguage.self, forKey: .translationSourceLanguage) {
+            translationSourceLanguage = decodedSource
+        } else if Self.isPreLanguageDocument(container, version: decodedConfigVersion) {
+            // Translation used to be Russian-only, so a configuration written back then keeps doing
+            // exactly what it did. A fresh install starts on "any language" instead.
+            translationSourceLanguage = .russian
+        }
 
         if let decodedPreferredTerms = try container.decodeIfPresent([String].self, forKey: .preferredTerms) {
             preferredTerms = Self.normalizedPreferredTerms(decodedPreferredTerms)
@@ -152,6 +213,8 @@ struct AppConfiguration: Codable, Equatable {
         try container.encode(configVersion, forKey: .configVersion)
         try container.encode(apiKey, forKey: .apiKey)
         try container.encode(translationModel, forKey: .translationModel)
+        try container.encodeIfPresent(translationSourceLanguage, forKey: .translationSourceLanguage)
+        try container.encode(translationTargetLanguage, forKey: .translationTargetLanguage)
         try container.encode(preferredTerms, forKey: .preferredTerms)
         try container.encode(translateHotKey, forKey: .translateHotKey)
         try container.encode(dictateHotKey, forKey: .dictateHotKey)
@@ -165,6 +228,18 @@ struct AppConfiguration: Codable, Equatable {
         case .translate:
             return translateHotKey
         }
+    }
+
+    /// Distinguishes a real configuration written before languages were selectable from an empty
+    /// document, so decoding `{}` lands on the same defaults as a first launch with no file at all.
+    private static func isPreLanguageDocument(_ container: KeyedDecodingContainer<CodingKeys>, version: Int) -> Bool {
+        guard version < 8 else { return false }
+
+        return container.contains(.configVersion)
+            || container.contains(.hotKey)
+            || container.contains(.hotKeyPreset)
+            || container.contains(.editingModel)
+            || container.contains(.pronunciationDictionary)
     }
 
     static func fallbackShortcut(avoiding shortcut: HotKeyShortcut) -> HotKeyShortcut {

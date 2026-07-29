@@ -331,7 +331,7 @@ final class AppViewModel: ObservableObject {
                 return
             }
 
-            recordingIndicator.show(mode: mode)
+            recordingIndicator.show(mode: mode, targetLanguage: configuration.translationTargetLanguage)
         } catch {
             workflowPhase = .idle
             insertionTargetApp = nil
@@ -523,17 +523,12 @@ final class AppViewModel: ObservableObject {
         configuration = next
     }
 
-    /// `Dictate` inserts the transcript untouched, so the second model only runs for `translate`,
-    /// and only when there is Russian in the text to translate.
+    /// `Dictate` inserts the transcript untouched, so the second model only runs for `translate` —
+    /// and whenever that shortcut was held, without second-guessing whether the text needs it.
     private func translateTranscriptIfNeeded(_ text: String, apiKey: String) async -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
         guard activeMode == .translate else { return trimmed }
-
-        guard containsRussianText(trimmed) else {
-            appendLog("Translation skipped: no Cyrillic in the transcript")
-            return trimmed
-        }
 
         workflowPhase = .translating
         statusText = "Translating transcript..."
@@ -546,7 +541,9 @@ final class AppViewModel: ObservableObject {
             .map(\.text)
             .reversed()
 
-        appendLog("Translation started: previousMessages=\(previousMessages.count), model=\(configuration.translationModel.rawValue)")
+        let sourceLanguage = configuration.translationSourceLanguage
+        let targetLanguage = configuration.translationTargetLanguage
+        appendLog("Translation started: previousMessages=\(previousMessages.count), model=\(configuration.translationModel.rawValue), from=\(sourceLanguage?.displayName ?? "any"), to=\(targetLanguage.displayName)")
 
         do {
             let client = OpenAITranslationClient()
@@ -555,6 +552,8 @@ final class AppViewModel: ObservableObject {
                 previousMessages: Array(previousMessages),
                 preferredTerms: configuration.preferredTerms,
                 model: configuration.translationModel.rawValue,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
                 apiKey: apiKey
             )
             appendLog("Translation complete: \(translatedText.count) chars")
@@ -562,12 +561,6 @@ final class AppViewModel: ObservableObject {
         } catch {
             appendLog("Translation failed, using raw transcript: \(error.localizedDescription)")
             return trimmed
-        }
-    }
-
-    private func containsRussianText(_ text: String) -> Bool {
-        text.unicodeScalars.contains { scalar in
-            (0x0400 ... 0x04FF).contains(scalar.value) || (0x0500 ... 0x052F).contains(scalar.value)
         }
     }
 
@@ -581,10 +574,10 @@ final class AppViewModel: ObservableObject {
 final class RecordingIndicatorController {
     private var panel: NSPanel?
 
-    func show(mode: DictationMode) {
+    func show(mode: DictationMode, targetLanguage: TranslationLanguage) {
         let panel = panel ?? makePanel()
         self.panel = panel
-        panel.contentView = NSHostingView(rootView: RecordingIndicatorView(mode: mode))
+        panel.contentView = NSHostingView(rootView: RecordingIndicatorView(mode: mode, targetLanguage: targetLanguage))
         position(panel)
         panel.orderFrontRegardless()
     }
@@ -625,6 +618,7 @@ final class RecordingIndicatorController {
 /// result comes back translated, and that is easy to get wrong mid-sentence.
 private struct RecordingIndicatorView: View {
     let mode: DictationMode
+    let targetLanguage: TranslationLanguage
 
     var body: some View {
         ZStack {
@@ -635,7 +629,7 @@ private struct RecordingIndicatorView: View {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 38, weight: .semibold))
 
-                Text(mode == .translate ? "EN" : "AS SPOKEN")
+                Text(mode == .translate ? targetLanguage.shortCode : "AS SPOKEN")
                     .font(.system(size: mode == .translate ? 13 : 9, weight: .bold))
                     .kerning(0.5)
             }

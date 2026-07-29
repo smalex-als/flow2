@@ -48,7 +48,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Flow2")
                     .font(.system(size: 32, weight: .semibold))
-                Text("Push-to-talk dictation for macOS. Hold one shortcut to dictate, the other to come back in English.")
+                Text("Push-to-talk dictation for macOS. Hold one shortcut to dictate, the other to come back in \(viewModel.configuration.translationTargetLanguage.displayName).")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -221,7 +221,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
                     footerInfoCard(title: "Transcription", value: transcriptionModelLabel, systemImage: "waveform")
-                    footerInfoCard(title: "Translation", value: viewModel.configuration.translationModel.rawValue, systemImage: "globe")
+                    footerInfoCard(title: "Translation", value: translationSummary, systemImage: "globe")
                     footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
                     footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
                 }
@@ -318,6 +318,12 @@ struct ContentView: View {
 
     private var transcriptionModelLabel: String {
         OpenAITranscriptionClient.model
+    }
+
+    private var translationSummary: String {
+        let configuration = viewModel.configuration
+        let source = configuration.translationSourceLanguage?.displayName ?? "Any language"
+        return "\(source) → \(configuration.translationTargetLanguage.displayName)\n\(configuration.translationModel.rawValue)"
     }
 
     private func footerInfoCard(title: String, value: String, systemImage: String) -> some View {

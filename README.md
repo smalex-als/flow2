@@ -1,7 +1,7 @@
 # Flow2
 
 > Native macOS push-to-talk dictation with OpenAI transcription and fast text insertion back into
-> the app you were using. Two shortcuts, two modes: say it, or say it and get English.
+> the app you were using. Two shortcuts, two modes: say it, or say it and get it translated.
 
 ## Two Modes
 
@@ -11,17 +11,17 @@ intent afterwards, so the mode is the key, not a setting.
 | Mode | Default shortcut | Result |
 | --- | --- | --- |
 | **Dictate** | `⇧⌘Space` | The transcript exactly as recognized, in the language you spoke |
-| **Dictate & Translate** | `⌃Space` | English, translated from what you said |
+| **Dictate & Translate** | `⌃Space` | The transcript in your target language |
 
-`Dictate` never sends your text to a second model. `Dictate & Translate` only calls one when the
-transcript actually contains Russian — speak English into it and it stays out of the way.
+`Dictate` never sends your text to a second model. `Dictate & Translate` always does — you held
+that key on purpose.
 
 Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 
 ## Highlights
 
 - 🎙️ Hold a global shortcut to record, release to transcribe
-- 🌍 A dedicated shortcut that returns English
+- 🌍 A dedicated shortcut that returns a language of your choosing, from any language or a named one
 - 📚 Preferred terms dictionary for names, products, and custom spellings
 - 📝 Native insertion for apps like Notes
 - 💻 Dedicated typing path for `Terminal` and `iTerm`
@@ -35,7 +35,7 @@ Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 2. Speak.
 3. Release the shortcut.
 4. Flow2 transcribes the audio with OpenAI.
-5. In `Dictate & Translate`, and only when the transcript contains Russian, Flow2 translates it.
+5. In `Dictate & Translate`, Flow2 translates the transcript into your target language.
 6. The result is saved into transcript history.
 7. Flow2 inserts the text back into the target app.
 
@@ -51,10 +51,11 @@ Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 
 - Endpoint: `POST /v1/chat/completions`
 - Default model: `gpt-5.6-luna`
-- Runs only in `Dictate & Translate`, and only when Cyrillic is present
+- Runs on every `Dictate & Translate` recording, and never on plain dictation
+- Source language is either a named one or `Any language`, where the model works it out
+- With `Any language`, text already in the target language is returned unchanged
 - Translates without correcting, rewriting, or summarizing
 - Uses a limited recent-history context only to resolve ambiguity
-- Retries with a stricter prompt if any Cyrillic survives the first pass
 - Accepts a preferred-terms list so the model gives priority to your spellings
 
 ### Preferred Terms Dictionary
@@ -106,7 +107,7 @@ Changes apply as you make them — there is no Save button, so the menu bar and 
 can never disagree. Typed fields (API key, dictionary) are written once typing settles, or when
 you leave the tab.
 
-- **General** — OpenAI API key, translation model, `Launch Flow2 at login`
+- **General** — OpenAI API key, translation languages (`From` / `To`) and model, `Launch Flow2 at login`
 - **Dictionary** — preferred terms, one per line
 - **Shortcuts** — one shortcut per mode; each refuses a combination the other already owns
 
@@ -117,6 +118,9 @@ shortcut keeps the mode it used to produce: if `Auto-translate Russian to Englis
 becomes `Dictate & Translate`, otherwise it becomes `Dictate`, and the old no-translate shortcut
 takes the other mode. `Auto-edit transcript with AI` no longer exists — `Dictate` returns the raw
 transcript.
+
+Translation languages start at `Russian → English` for an upgraded configuration, matching what
+the app used to do, and at `Any language → English` for a fresh install.
 
 ## Permissions
 
