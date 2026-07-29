@@ -1,186 +1,283 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var viewModel: AppViewModel
-    @State private var draftKey = ""
-    @State private var draftEditingModel: EditingModelPreset = AppConfiguration.defaultEditingModel
-    @State private var draftEnableAIEditing = false
-    @State private var draftAutoTranslateRussianToEnglish = false
-    @State private var draftPreferredTerms = ""
-    @State private var draftHotKey = HotKeyShortcut.controlSpace
-    @State private var draftEnableNoTranslateHotKey = false
-    @State private var draftNoTranslateHotKey = AppConfiguration.defaultNoTranslateHotKey
-    @State private var draftLaunchAtLogin = false
-    @State private var didLoadDrafts = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Settings")
-                    .font(.system(size: 22, weight: .semibold))
-                Text("Control your OpenAI setup, recording hotkey, and startup behavior.")
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            TabView {
+                GeneralSettingsTab()
+                    .tabItem { Label("General", systemImage: "gearshape") }
+
+                DictionarySettingsTab()
+                    .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
+
+                ShortcutsSettingsTab()
+                    .tabItem { Label("Shortcuts", systemImage: "keyboard") }
             }
 
-            Form {
-                Section("OpenAI") {
-                    SecureField("API key", text: $draftKey)
-                        .textFieldStyle(.roundedBorder)
+            if let settingsError = viewModel.settingsError {
+                Divider()
 
-                    Picker("Post-processing model", selection: $draftEditingModel) {
-                        ForEach(EditingModelPreset.allCases) { preset in
-                            Text(preset.displayName)
-                                .tag(preset)
-                        }
-                    }
-                    .disabled(!draftEnableAIEditing && !draftAutoTranslateRussianToEnglish)
-
-                    Toggle("Auto-edit transcript with AI", isOn: $draftEnableAIEditing)
-
-                    Toggle("Auto-translate Russian to English", isOn: $draftAutoTranslateRussianToEnglish)
-
-                    Text("OpenAI speech-to-text uses \(OpenAITranscriptionClient.model) for completed recordings.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("Post-processing model: used for enabled editing and translation. Translation works independently of auto-editing.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("GPT-5.6 post-processing options: Luna for speed and volume, Terra for balance, and Sol for maximum quality.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("When Russian text is detected in the raw transcript, translation mode asks for English-only output.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(settingsError)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 0)
                 }
-
-                Section("Dictionary") {
-                    Text("Use one preferred term per line.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    TextEditor(text: $draftPreferredTerms)
-                        .font(.system(size: 13, design: .monospaced))
-                        .frame(minHeight: 150)
-                        .padding(8)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                    Text("These terms are sent to \(OpenAITranscriptionClient.model) as keyword hints and passed into enabled translation or auto-editing as preferred spellings.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("Example: `ChatGPT`, `Smalex`, `iTerm2`")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("Hotkey") {
-                    LabeledContent("Dictation with translation") {
-                        HotKeyRecorderView(shortcut: $draftHotKey)
-                            .frame(width: 180)
-                    }
-
-                    Toggle("Enable dictation without translation", isOn: $draftEnableNoTranslateHotKey)
-
-                    LabeledContent("Dictation without translation") {
-                        HotKeyRecorderView(
-                            shortcut: $draftNoTranslateHotKey,
-                            isEnabled: draftEnableNoTranslateHotKey
-                        )
-                        .frame(width: 180)
-                    }
-
-                    if hasHotKeyConflict {
-                        Text("Choose different shortcuts for the two dictation modes.")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    Text("Click a shortcut field, then press any key with Control, Option, Shift, or Command. Press Escape to cancel recording.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("Dictation with translation follows the translation setting above. Dictation without translation always returns the transcript in the language you spoke.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("Startup") {
-                    Toggle("Launch Flow2 at login", isOn: $draftLaunchAtLogin)
-                }
-            }
-            .formStyle(.grouped)
-
-            Divider()
-
-            HStack {
-                Text("Press Return to save")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Save Settings") {
-                    saveSettings()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(hasHotKeyConflict)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
         }
-        .padding(18)
-        .frame(width: 720, height: 520)
+        .frame(width: 540, height: 512)
+    }
+}
+
+// MARK: - General
+
+private struct GeneralSettingsTab: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @State private var apiKeyDraft = ""
+    @State private var didLoadAPIKey = false
+
+    var body: some View {
+        Form {
+            Section {
+                SecureField("API key", text: $apiKeyDraft, prompt: Text("sk-..."))
+
+                LabeledContent("Speech-to-text") {
+                    Text(OpenAITranscriptionClient.model)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("OpenAI")
+            } footer: {
+                Text("The key is stored in `~/Library/Application Support/Flow2/config.json`.")
+            }
+
+            Section {
+                Toggle("Clean up transcripts", isOn: viewModel.binding(\.enableAIEditing))
+                Toggle("Translate Russian to English", isOn: viewModel.binding(\.autoTranslateRussianToEnglish))
+
+                Picker("Model", selection: viewModel.binding(\.editingModel)) {
+                    ForEach(EditingModelPreset.allCases) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+                .disabled(!isPostProcessingEnabled)
+            } header: {
+                Text("Post-processing")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(postProcessingSummary)
+                    Text("Luna is the fastest, Terra balances speed and quality, Sol is the most accurate.")
+                }
+            }
+
+            Section("Startup") {
+                Toggle("Launch Flow2 at login", isOn: viewModel.binding(\.launchAtLogin))
+            }
+        }
+        .formStyle(.grouped)
         .task {
-            guard !didLoadDrafts else { return }
-            await viewModel.loadConfiguration()
-            draftKey = viewModel.configuration.apiKey
-            draftEditingModel = viewModel.configuration.editingModel
-            draftEnableAIEditing = viewModel.configuration.enableAIEditing
-            draftAutoTranslateRussianToEnglish = viewModel.configuration.autoTranslateRussianToEnglish
-            draftPreferredTerms = serializePreferredTerms(viewModel.configuration.preferredTerms)
-            draftHotKey = viewModel.configuration.hotKey
-            draftEnableNoTranslateHotKey = viewModel.configuration.enableNoTranslateHotKey
-            draftNoTranslateHotKey = viewModel.configuration.noTranslateHotKey
-            draftLaunchAtLogin = viewModel.configuration.launchAtLogin
-            didLoadDrafts = true
+            apiKeyDraft = viewModel.configuration.apiKey
+            didLoadAPIKey = true
+        }
+        // Saving per keystroke would rewrite the config file and re-register the hotkeys on every
+        // character, so the key settles first.
+        .task(id: apiKeyDraft) {
+            guard didLoadAPIKey else { return }
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+
+            await viewModel.updateConfiguration {
+                $0.apiKey = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        // Leaving the tab cancels the pending debounce, so the last keystrokes are flushed here.
+        .onDisappear {
+            guard didLoadAPIKey else { return }
+            let apiKey = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            Task { await viewModel.updateConfiguration { $0.apiKey = apiKey } }
         }
     }
 
-    private func parsePreferredTerms(_ text: String) -> [String] {
+    private var isPostProcessingEnabled: Bool {
+        viewModel.configuration.enableAIEditing || viewModel.configuration.autoTranslateRussianToEnglish
+    }
+
+    private var postProcessingSummary: String {
+        switch (viewModel.configuration.enableAIEditing, viewModel.configuration.autoTranslateRussianToEnglish) {
+        case (true, true):
+            return "Transcripts are corrected, and Russian speech comes back as English."
+        case (true, false):
+            return "Transcripts are corrected in the language you spoke."
+        case (false, true):
+            return "Russian speech comes back as English, otherwise the transcript is left as recognized."
+        case (false, false):
+            return "Transcripts are inserted exactly as recognized. No second model runs."
+        }
+    }
+}
+
+// MARK: - Dictionary
+
+private struct DictionarySettingsTab: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @State private var termsDraft = ""
+    @State private var didLoadTerms = false
+
+    var body: some View {
+        Form {
+            Section {
+                TextEditor(text: $termsDraft)
+                    .font(.system(size: 13, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 200)
+                    .padding(8)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                    }
+            } header: {
+                HStack {
+                    Text("Preferred terms")
+                    Spacer()
+                    Text(termCountLabel)
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("One term per line, for names, products, and spellings that get recognized wrong.")
+                    Text("Sent to \(OpenAITranscriptionClient.model) as keyword hints, and treated as authoritative spellings by translation and cleanup.")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .task {
+            termsDraft = viewModel.configuration.preferredTerms.joined(separator: "\n")
+            didLoadTerms = true
+        }
+        .task(id: termsDraft) {
+            guard didLoadTerms else { return }
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+
+            await viewModel.updateConfiguration { $0.preferredTerms = Self.parse(termsDraft) }
+        }
+        .onDisappear {
+            guard didLoadTerms else { return }
+            let terms = Self.parse(termsDraft)
+            Task { await viewModel.updateConfiguration { $0.preferredTerms = terms } }
+        }
+    }
+
+    private var termCountLabel: String {
+        let count = Self.parse(termsDraft).count
+        return count == 1 ? "1 term" : "\(count) terms"
+    }
+
+    private static func parse(_ text: String) -> [String] {
         text
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
+}
 
-    private func serializePreferredTerms(_ terms: [String]) -> String {
-        terms.joined(separator: "\n")
-    }
+// MARK: - Shortcuts
 
-    private var hasHotKeyConflict: Bool {
-        draftEnableNoTranslateHotKey && draftHotKey == draftNoTranslateHotKey
-    }
+private struct ShortcutsSettingsTab: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @State private var conflictMessage: String?
 
-    private func saveSettings() {
-        Task {
-            let didSave = await viewModel.saveConfiguration(
-                apiKey: draftKey,
-                editingModel: draftEditingModel,
-                enableAIEditing: draftEnableAIEditing,
-                autoTranslateRussianToEnglish: draftAutoTranslateRussianToEnglish,
-                preferredTerms: parsePreferredTerms(draftPreferredTerms),
-                hotKey: draftHotKey,
-                enableNoTranslateHotKey: draftEnableNoTranslateHotKey,
-                noTranslateHotKey: draftNoTranslateHotKey,
-                launchAtLogin: draftLaunchAtLogin
-            )
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Dictate") {
+                    HotKeyRecorderView(shortcut: primaryShortcut)
+                        .frame(width: 170)
+                }
+            } header: {
+                Text("Shortcut")
+            } footer: {
+                Text("Hold to record, release to transcribe. Click the field, then press a combination that includes ⌃, ⌥, ⇧, or ⌘. Escape cancels.")
+            }
 
-            if didSave {
-                dismiss()
+            Section {
+                Toggle("Use a second shortcut", isOn: viewModel.binding(\.enableNoTranslateHotKey))
+
+                LabeledContent("Dictate without translating") {
+                    HotKeyRecorderView(
+                        shortcut: secondaryShortcut,
+                        isEnabled: viewModel.configuration.enableNoTranslateHotKey
+                    )
+                    .frame(width: 170)
+                }
+
+                if let conflictMessage {
+                    Text(conflictMessage)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                Text("Skip translation")
+            } footer: {
+                Text("The main shortcut follows the translation setting in General. This one always returns the transcript in the language you spoke.")
             }
         }
+        .formStyle(.grouped)
+    }
+
+    private var primaryShortcut: Binding<HotKeyShortcut> {
+        Binding(
+            get: { viewModel.configuration.hotKey },
+            set: { newValue in
+                conflictMessage = nil
+                Task {
+                    await viewModel.updateConfiguration { configuration in
+                        configuration.hotKey = newValue
+                        // The main shortcut wins; the second one steps aside instead of blocking it.
+                        if configuration.noTranslateHotKey == newValue {
+                            configuration.noTranslateHotKey = AppConfiguration.fallbackNoTranslateHotKey(avoiding: newValue)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private var secondaryShortcut: Binding<HotKeyShortcut> {
+        Binding(
+            get: { viewModel.configuration.noTranslateHotKey },
+            set: { newValue in
+                guard newValue != viewModel.configuration.hotKey else {
+                    conflictMessage = "\(newValue.displayName) is already the main dictation shortcut."
+                    return
+                }
+
+                conflictMessage = nil
+                Task {
+                    await viewModel.updateConfiguration { $0.noTranslateHotKey = newValue }
+                }
+            }
+        )
+    }
+}
+
+private extension AppViewModel {
+    /// Writes straight through to the stored configuration, so a control never holds a draft that
+    /// can drift from what the menu bar or another settings tab already changed.
+    func binding<Value: Equatable>(_ keyPath: WritableKeyPath<AppConfiguration, Value>) -> Binding<Value> {
+        Binding(
+            get: { self.configuration[keyPath: keyPath] },
+            set: { newValue in
+                Task { await self.updateConfiguration { $0[keyPath: keyPath] = newValue } }
+            }
+        )
     }
 }

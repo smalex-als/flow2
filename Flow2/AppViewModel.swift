@@ -75,6 +75,7 @@ final class AppViewModel: ObservableObject {
     @Published var statusText = "Ready"
     @Published private(set) var workflowPhase: AppWorkflowPhase = .idle
     @Published var isShowingMissingKeyAlert = false
+    @Published var settingsError: String?
     @Published var hotKeyStatus = "Hotkey not registered"
     @Published var hotKeyRegistrationFailed = false
     @Published var insertionStatus = "Auto-paste after transcription is enabled"
@@ -124,36 +125,18 @@ final class AppViewModel: ObservableObject {
         refreshAccessibilityStatus()
     }
 
-    func updateQuickToggles(enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool) async {
+    /// Settings apply as they are edited, so every change funnels through here instead of a Save
+    /// button. Identical values are dropped: they would otherwise rewrite the file and re-register
+    /// the hotkeys for nothing.
+    func updateConfiguration(_ mutate: (inout AppConfiguration) -> Void) async {
         var next = configuration
-        next.enableAIEditing = enableAIEditing
-        next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
-        _ = await saveConfiguration(next)
+        mutate(&next)
+        guard next != configuration else { return }
+        await saveConfiguration(next)
     }
 
-    func saveConfiguration(apiKey: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKey: HotKeyShortcut, enableNoTranslateHotKey: Bool, noTranslateHotKey: HotKeyShortcut, launchAtLogin: Bool) async -> Bool {
-        guard !enableNoTranslateHotKey || hotKey != noTranslateHotKey else {
-            statusText = "The translation and no-translation hotkeys must be different."
-            return false
-        }
-
-        var next = configuration
-        next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        next.editingModel = editingModel
-        next.enableAIEditing = enableAIEditing
-        next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
-        next.preferredTerms = preferredTerms
-        next.hotKey = hotKey
-        next.enableNoTranslateHotKey = enableNoTranslateHotKey
-        next.noTranslateHotKey = noTranslateHotKey
-        next.launchAtLogin = launchAtLogin
-
-        return await saveConfiguration(next)
-    }
-
-    private func saveConfiguration(_ next: AppConfiguration) async -> Bool {
-        var resolved = next
-        var launchAtLoginError: Error?
+    private func saveConfiguration(_ next: AppConfiguration) async {
+        let launchAtLoginChanged = next.launchAtLogin != configuration.launchAtLogin
 
         do {
             try configStore.save(next)
@@ -161,28 +144,29 @@ final class AppViewModel: ObservableObject {
             NotificationCenter.default.post(name: .flow2ConfigurationDidChange, object: nil)
             appendLog("Settings saved: transcriptionModel=\(OpenAITranscriptionClient.model), editingModel=\(next.editingModel.rawValue), enableAIEditing=\(next.enableAIEditing), translateToEnglish=\(next.autoTranslateRussianToEnglish)")
         } catch {
-            statusText = "Could not save config: \(error.localizedDescription)"
+            settingsError = "Could not save settings: \(error.localizedDescription)"
             appendLog("Settings save failed: \(error.localizedDescription)")
-            return false
+            return
+        }
+
+        guard launchAtLoginChanged else {
+            settingsError = nil
+            return
         }
 
         do {
             try launchAtLoginService.setEnabled(next.launchAtLogin)
+            settingsError = nil
         } catch {
-            launchAtLoginError = error
+            // The system refused, so the stored value is rolled back to what it actually is rather
+            // than left claiming something the user would not get at the next login.
+            var resolved = next
             resolved.launchAtLogin = launchAtLoginService.currentValue()
             configuration = resolved
             try? configStore.save(resolved)
+            settingsError = "Launch at login could not be changed: \(error.localizedDescription)"
+            appendLog("Launch at login update failed: \(error.localizedDescription)")
         }
-
-        if let launchAtLoginError {
-            statusText = "Settings saved, but Launch at login failed: \(launchAtLoginError.localizedDescription)"
-            appendLog("Launch at login update failed: \(launchAtLoginError.localizedDescription)")
-        } else {
-            statusText = "Settings saved"
-        }
-
-        return true
     }
 
     func toggleRecording() async {

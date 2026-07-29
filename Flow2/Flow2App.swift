@@ -29,7 +29,6 @@ struct Flow2App: App {
         Settings {
             SettingsView()
                 .environmentObject(viewModel)
-                .frame(width: 760, height: 640)
         }
 
         MenuBarExtra("Flow2", systemImage: viewModel.isRecording ? "waveform.circle.fill" : "mic.circle") {
@@ -117,10 +116,7 @@ private struct MenuBarContentView: View {
             get: { viewModel.configuration.enableAIEditing },
             set: { newValue in
                 Task {
-                    await viewModel.updateQuickToggles(
-                        enableAIEditing: newValue,
-                        autoTranslateRussianToEnglish: viewModel.configuration.autoTranslateRussianToEnglish
-                    )
+                    await viewModel.updateConfiguration { $0.enableAIEditing = newValue }
                 }
             }
         )
@@ -131,10 +127,7 @@ private struct MenuBarContentView: View {
             get: { viewModel.configuration.autoTranslateRussianToEnglish },
             set: { newValue in
                 Task {
-                    await viewModel.updateQuickToggles(
-                        enableAIEditing: viewModel.configuration.enableAIEditing,
-                        autoTranslateRussianToEnglish: newValue
-                    )
+                    await viewModel.updateConfiguration { $0.autoTranslateRussianToEnglish = newValue }
                 }
             }
         )

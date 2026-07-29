@@ -45,7 +45,7 @@ enum EditingModelPreset: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct AppConfiguration: Codable {
+struct AppConfiguration: Codable, Equatable {
     private struct LegacyPronunciationDictionaryEntry: Decodable {
         let preferred: String?
     }

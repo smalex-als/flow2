@@ -85,15 +85,14 @@ The menu bar extra supports:
 
 ## Settings
 
-Current settings:
+Changes apply as you make them — there is no Save button, and the menu bar toggles and the
+settings window always show the same state. Typed fields (API key, dictionary) are written once
+typing settles, or when you leave the tab.
 
-- OpenAI API key
-- Post-processing model
-- `Auto-edit transcript with AI`
-- `Auto-translate Russian to English`
-- Preferred terms dictionary
-- Custom push-to-talk hotkeys
-- `Launch Flow2 at login`
+- **General** — OpenAI API key, post-processing model, `Clean up transcripts`,
+  `Translate Russian to English`, `Launch Flow2 at login`
+- **Dictionary** — preferred terms, one per line
+- **Shortcuts** — the push-to-talk shortcut, plus an optional second one that skips translation
 
 ## Permissions
 

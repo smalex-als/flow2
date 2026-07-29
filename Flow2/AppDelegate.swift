@@ -4,6 +4,7 @@ import Carbon
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyManagers: [GlobalHotKeyManager] = []
+    private var registeredShortcuts: [HotKeyShortcut]?
     private weak var viewModel: AppViewModel?
     private var configurationObserver: NSObjectProtocol?
 
@@ -31,8 +32,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateHotKeyRegistration() {
         guard let viewModel else { return }
 
-        hotKeyManagers = []
-
         let configuration = viewModel.configuration
         var requests: [(id: UInt32, shortcut: HotKeyShortcut, behavior: TranslationBehavior)] = [
             (1, configuration.hotKey, .followSettings)
@@ -41,6 +40,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if configuration.enableNoTranslateHotKey, configuration.noTranslateHotKey != configuration.hotKey {
             requests.append((2, configuration.noTranslateHotKey, .keepOriginalLanguage))
         }
+
+        // Settings save on every edit, and tearing the hotkeys down while one is held would drop its
+        // release event and leave a recording running. Unrelated changes must not touch them.
+        let shortcuts = requests.map(\.shortcut)
+        guard shortcuts != registeredShortcuts || hotKeyManagers.count != requests.count else { return }
+        registeredShortcuts = shortcuts
+
+        hotKeyManagers = []
 
         var statusParts: [String] = []
         var didFail = false
