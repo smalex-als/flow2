@@ -29,7 +29,7 @@
 ### 1. Transcription
 
 - Endpoint: `POST /v1/audio/transcriptions`
-- Default model: `gpt-4o-mini-transcribe`
+- Default model: `gpt-transcribe`
 
 ### 2. Optional AI post-processing
 
@@ -50,7 +50,7 @@ iTerm2
 Flow2
 ```
 
-These terms are passed into the AI editing step as authoritative spellings for names, tools, and frequently used words.
+These terms are sent to `gpt-transcribe` as `keywords[]` hints and are also passed into the optional AI editing step as authoritative spellings.
 
 ## Insertion Paths
 
@@ -76,7 +76,7 @@ The menu bar extra supports:
 Current settings:
 
 - OpenAI API key
-- Transcription model
+- Post-processing model
 - `Auto-edit transcript with AI`
 - `Auto-translate Russian to English`
 - Preferred terms dictionary
@@ -99,6 +99,20 @@ Open [`Flow2.xcodeproj`](/Users/smalex/jsprojects/flow2tmp/Flow2.xcodeproj) in X
 
 ```bash
 xcodebuild -project Flow2.xcodeproj -scheme Flow2 -configuration Debug -derivedDataPath .deriveddata build
+```
+
+The repository also includes a Makefile with shortcuts for common build tasks:
+
+```bash
+make          # Build the Debug configuration
+make run      # Build and launch Flow2
+make clean    # Remove build products
+```
+
+To build another configuration, pass it on the command line:
+
+```bash
+make run CONFIGURATION=Release
 ```
 
 ## Project Layout

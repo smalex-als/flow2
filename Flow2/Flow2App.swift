@@ -15,6 +15,15 @@ struct Flow2App: App {
                 }
         }
         .defaultSize(width: 980, height: 780)
+        .windowResizability(.contentMinSize)
+        .commands {
+            Flow2Commands()
+        }
+
+        Window("About Flow2", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
 
         Settings {
             SettingsView()
@@ -25,6 +34,19 @@ struct Flow2App: App {
         MenuBarExtra("Flow2", systemImage: viewModel.isRecording ? "waveform.circle.fill" : "mic.circle") {
             MenuBarContentView()
                 .environmentObject(viewModel)
+        }
+    }
+}
+
+private struct Flow2Commands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Flow2") {
+                openWindow(id: "about")
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
     }
 }
@@ -60,6 +82,11 @@ private struct MenuBarContentView: View {
 
             Button("Show Flow2 Window") {
                 openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+
+            Button("About Flow2") {
+                openWindow(id: "about")
                 NSApp.activate(ignoringOtherApps: true)
             }
 

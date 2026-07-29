@@ -19,7 +19,7 @@
 		A1000000000000000000000B /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001C /* AppDelegate.swift */; };
 		A1000000000000000000000C /* TextInsertionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001D /* TextInsertionService.swift */; };
 		A1000000000000000000002F /* OpenAIEditingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000030 /* OpenAIEditingClient.swift */; };
-		A10000000000000000000033 /* LocalWhisperTranscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000034 /* LocalWhisperTranscriptionClient.swift */; };
+		A10000000000000000000035 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000036 /* AboutView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,7 +38,7 @@
 		A1000000000000000000001C /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A1000000000000000000001D /* TextInsertionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextInsertionService.swift; sourceTree = "<group>"; };
 		A10000000000000000000030 /* OpenAIEditingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIEditingClient.swift; sourceTree = "<group>"; };
-		A10000000000000000000034 /* LocalWhisperTranscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperTranscriptionClient.swift; sourceTree = "<group>"; };
+		A10000000000000000000036 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,11 +66,11 @@
 				A10000000000000000000011 /* Flow2App.swift */,
 				A10000000000000000000012 /* ContentView.swift */,
 				A10000000000000000000013 /* SettingsView.swift */,
+				A10000000000000000000036 /* AboutView.swift */,
 				A10000000000000000000014 /* AppViewModel.swift */,
 				A1000000000000000000001C /* AppDelegate.swift */,
 				A10000000000000000000015 /* AudioRecorder.swift */,
 				A10000000000000000000016 /* OpenAITranscriptionClient.swift */,
-				A10000000000000000000034 /* LocalWhisperTranscriptionClient.swift */,
 				A10000000000000000000030 /* OpenAIEditingClient.swift */,
 				A1000000000000000000001D /* TextInsertionService.swift */,
 				A10000000000000000000017 /* AppConfiguration.swift */,
@@ -108,6 +108,7 @@
 				A10000000000000000000027 /* Sources */,
 				A10000000000000000000020 /* Frameworks */,
 				A10000000000000000000028 /* Resources */,
+				A10000000000000000000037 /* Generate Build Information */,
 			);
 			buildRules = (
 			);
@@ -164,12 +165,36 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		A10000000000000000000037 /* Generate Build Information */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Generate Build Information";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BuildInfo.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\n\nbuild_info=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BuildInfo.plist\"\n/bin/mkdir -p \"$(/usr/bin/dirname \"$build_info\")\"\n/usr/bin/plutil -create xml1 \"$build_info\"\n/usr/bin/plutil -insert BuildDate -string \"$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$build_info\"\n/usr/bin/plutil -insert Configuration -string \"$CONFIGURATION\" \"$build_info\"\n/usr/bin/plutil -insert SourceRoot -string \"$SRCROOT\" \"$build_info\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A10000000000000000000027 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000004 /* AppViewModel.swift in Sources */,
+				A10000000000000000000035 /* AboutView.swift in Sources */,
 				A10000000000000000000007 /* AppConfiguration.swift in Sources */,
 				A1000000000000000000000B /* AppDelegate.swift in Sources */,
 				A10000000000000000000005 /* AudioRecorder.swift in Sources */,
@@ -179,7 +204,6 @@
 				A10000000000000000000006 /* OpenAITranscriptionClient.swift in Sources */,
 				A10000000000000000000003 /* SettingsView.swift in Sources */,
 				A1000000000000000000000C /* TextInsertionService.swift in Sources */,
-				A10000000000000000000033 /* LocalWhisperTranscriptionClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

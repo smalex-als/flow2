@@ -4,10 +4,6 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var draftKey = ""
-    @State private var draftModel = ""
-    @State private var draftTranscriptionProvider: TranscriptionProvider = .openAI
-    @State private var draftLocalWhisperExecutablePath = AppConfiguration.defaultLocalWhisperExecutablePath
-    @State private var draftLocalWhisperModel = AppConfiguration.defaultLocalWhisperModel
     @State private var draftEditingModel: EditingModelPreset = AppConfiguration.defaultEditingModel
     @State private var draftEnableAIEditing = false
     @State private var draftAutoTranslateRussianToEnglish = false
@@ -32,25 +28,6 @@ struct SettingsView: View {
                     SecureField("API key", text: $draftKey)
                         .textFieldStyle(.roundedBorder)
 
-                    Picker("Speech-to-text engine", selection: $draftTranscriptionProvider) {
-                        ForEach(TranscriptionProvider.allCases) { provider in
-                            Text(provider.displayName)
-                                .tag(provider)
-                        }
-                    }
-
-                    TextField("OpenAI speech-to-text model", text: $draftModel)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(draftTranscriptionProvider != .openAI)
-
-                    TextField("Local Whisper command", text: $draftLocalWhisperExecutablePath)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(draftTranscriptionProvider != .localWhisper)
-
-                    TextField("Local Whisper model", text: $draftLocalWhisperModel)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(draftTranscriptionProvider != .localWhisper)
-
                     Picker("Post-processing model", selection: $draftEditingModel) {
                         ForEach(EditingModelPreset.allCases) { preset in
                             Text(preset.displayName)
@@ -64,11 +41,7 @@ struct SettingsView: View {
                     Toggle("Auto-translate Russian to English", isOn: $draftAutoTranslateRussianToEnglish)
                         .disabled(!draftEnableAIEditing)
 
-                    Text("Local Whisper runs on this Mac through the command-line tool and does not send audio to OpenAI.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("OpenAI speech-to-text model: `gpt-4o-mini-transcribe` is the compact default; `gpt-4o-transcribe` is the higher accuracy option.")
+                    Text("OpenAI speech-to-text uses \(OpenAITranscriptionClient.model) for completed recordings.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -97,7 +70,7 @@ struct SettingsView: View {
                         .background(Color(nsColor: .textBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                    Text("These terms are passed into AI auto-editing as preferred spellings, names, and product words.")
+                    Text("These terms are sent to \(OpenAITranscriptionClient.model) as keyword hints and passed into AI auto-editing as preferred spellings.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -137,53 +110,30 @@ struct SettingsView: View {
                 Section("Startup") {
                     Toggle("Launch Flow2 at login", isOn: $draftLaunchAtLogin)
                 }
-
-                Section {
-                    HStack {
-                        Spacer()
-                        Button("Save") {
-                            Task {
-                                var model = draftModel
-                                if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    model = AppConfiguration.defaultModel
-                                }
-
-                                let didSave = await viewModel.saveConfiguration(
-                                    apiKey: draftKey,
-                                    model: model,
-                                    transcriptionProvider: draftTranscriptionProvider,
-                                    localWhisperExecutablePath: draftLocalWhisperExecutablePath,
-                                    localWhisperModel: draftLocalWhisperModel,
-                                    editingModel: draftEditingModel,
-                                    enableAIEditing: draftEnableAIEditing,
-                                    autoTranslateRussianToEnglish: draftAutoTranslateRussianToEnglish,
-                                    preferredTerms: parsePreferredTerms(draftPreferredTerms),
-                                    hotKeyPreset: draftHotKeyPreset,
-                                    enableNoTranslateHotKey: draftEnableNoTranslateHotKey,
-                                    noTranslateHotKeyPreset: draftNoTranslateHotKeyPreset,
-                                    launchAtLogin: draftLaunchAtLogin
-                                )
-
-                                if didSave {
-                                    dismiss()
-                                }
-                            }
-                        }
-                        .keyboardShortcut(.defaultAction)
-                    }
-                }
             }
             .formStyle(.grouped)
+
+            Divider()
+
+            HStack {
+                Text("Press Return to save")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Save Settings") {
+                    saveSettings()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
         }
         .padding(18)
+        .frame(width: 720, height: 520)
         .task {
             guard !didLoadDrafts else { return }
             await viewModel.loadConfiguration()
             draftKey = viewModel.configuration.apiKey
-            draftModel = viewModel.configuration.model
-            draftTranscriptionProvider = viewModel.configuration.transcriptionProvider
-            draftLocalWhisperExecutablePath = viewModel.configuration.localWhisperExecutablePath
-            draftLocalWhisperModel = viewModel.configuration.localWhisperModel
             draftEditingModel = viewModel.configuration.editingModel
             draftEnableAIEditing = viewModel.configuration.enableAIEditing
             draftAutoTranslateRussianToEnglish = viewModel.configuration.autoTranslateRussianToEnglish
@@ -205,5 +155,25 @@ struct SettingsView: View {
 
     private func serializePreferredTerms(_ terms: [String]) -> String {
         terms.joined(separator: "\n")
+    }
+
+    private func saveSettings() {
+        Task {
+            let didSave = await viewModel.saveConfiguration(
+                apiKey: draftKey,
+                editingModel: draftEditingModel,
+                enableAIEditing: draftEnableAIEditing,
+                autoTranslateRussianToEnglish: draftAutoTranslateRussianToEnglish,
+                preferredTerms: parsePreferredTerms(draftPreferredTerms),
+                hotKeyPreset: draftHotKeyPreset,
+                enableNoTranslateHotKey: draftEnableNoTranslateHotKey,
+                noTranslateHotKeyPreset: draftNoTranslateHotKeyPreset,
+                launchAtLogin: draftLaunchAtLogin
+            )
+
+            if didSave {
+                dismiss()
+            }
+        }
     }
 }

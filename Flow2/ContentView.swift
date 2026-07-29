@@ -4,23 +4,29 @@ struct ContentView: View {
     @EnvironmentObject private var viewModel: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            header
-            transcriptsPanel
-            footer
-        }
-        .padding(24)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .controlBackgroundColor).opacity(0.65)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    transcriptsPanel
+                        .frame(height: max(240, geometry.size.height * 0.55))
+                    footer
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: .windowBackgroundColor),
+                        Color(nsColor: .controlBackgroundColor).opacity(0.65)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             )
-        )
-        .frame(minWidth: 920, minHeight: 820)
+        }
+        .frame(minWidth: 640, minHeight: 480)
     }
 
     private var header: some View {
@@ -140,7 +146,7 @@ struct ContentView: View {
                     .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 460, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
         .layoutPriority(2)
     }
 
@@ -271,12 +277,7 @@ struct ContentView: View {
     }
 
     private var transcriptionModelLabel: String {
-        switch viewModel.configuration.transcriptionProvider {
-        case .openAI:
-            return viewModel.configuration.model
-        case .localWhisper:
-            return "Local Whisper: \(viewModel.configuration.localWhisperModel)"
-        }
+        OpenAITranscriptionClient.model
     }
 
     private func footerInfoCard(title: String, value: String, systemImage: String) -> some View {

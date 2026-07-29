@@ -106,7 +106,7 @@ final class AppViewModel: ObservableObject {
     func loadConfiguration() async {
         do {
             configuration = try configStore.load()
-            appendLog("Config loaded: transcriptionProvider=\(configuration.transcriptionProvider.rawValue), transcriptionModel=\(configuration.model), localWhisperModel=\(configuration.localWhisperModel), editingModel=\(configuration.editingModel.rawValue), enableAIEditing=\(configuration.enableAIEditing), translateToEnglish=\(configuration.autoTranslateRussianToEnglish)")
+            appendLog("Config loaded: transcriptionModel=\(OpenAITranscriptionClient.model), editingModel=\(configuration.editingModel.rawValue), enableAIEditing=\(configuration.enableAIEditing), translateToEnglish=\(configuration.autoTranslateRussianToEnglish)")
         } catch {
             statusText = "Could not load config: \(error.localizedDescription)"
         }
@@ -121,27 +121,6 @@ final class AppViewModel: ObservableObject {
         refreshAccessibilityStatus()
     }
 
-    func saveConfiguration(apiKey: String, model: String) async -> Bool {
-        var next = configuration
-        next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        next.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        if next.model.isEmpty {
-            next.model = AppConfiguration.defaultModel
-        }
-        next.editingModel = configuration.editingModel
-        next.enableAIEditing = configuration.enableAIEditing
-        next.autoTranslateRussianToEnglish = configuration.autoTranslateRussianToEnglish
-        next.preferredTerms = configuration.preferredTerms
-        next.hotKeyPreset = configuration.hotKeyPreset
-        next.enableNoTranslateHotKey = configuration.enableNoTranslateHotKey
-        next.noTranslateHotKeyPreset = configuration.noTranslateHotKeyPreset
-        next.transcriptionProvider = configuration.transcriptionProvider
-        next.localWhisperExecutablePath = configuration.localWhisperExecutablePath
-        next.localWhisperModel = configuration.localWhisperModel
-
-        return await saveConfiguration(next)
-    }
-
     func updateQuickToggles(enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool) async {
         var next = configuration
         next.enableAIEditing = enableAIEditing
@@ -149,22 +128,9 @@ final class AppViewModel: ObservableObject {
         _ = await saveConfiguration(next)
     }
 
-    func saveConfiguration(apiKey: String, model: String, transcriptionProvider: TranscriptionProvider, localWhisperExecutablePath: String, localWhisperModel: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, enableNoTranslateHotKey: Bool, noTranslateHotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
+    func saveConfiguration(apiKey: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, enableNoTranslateHotKey: Bool, noTranslateHotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
         var next = configuration
         next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        next.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        if next.model.isEmpty {
-            next.model = AppConfiguration.defaultModel
-        }
-        next.transcriptionProvider = transcriptionProvider
-        next.localWhisperExecutablePath = localWhisperExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if next.localWhisperExecutablePath.isEmpty {
-            next.localWhisperExecutablePath = AppConfiguration.defaultLocalWhisperExecutablePath
-        }
-        next.localWhisperModel = localWhisperModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        if next.localWhisperModel.isEmpty {
-            next.localWhisperModel = AppConfiguration.defaultLocalWhisperModel
-        }
         next.editingModel = editingModel
         next.enableAIEditing = enableAIEditing
         next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
@@ -187,7 +153,7 @@ final class AppViewModel: ObservableObject {
             try configStore.save(next)
             configuration = next
             NotificationCenter.default.post(name: .flow2ConfigurationDidChange, object: nil)
-            appendLog("Settings saved: transcriptionProvider=\(next.transcriptionProvider.rawValue), transcriptionModel=\(next.model), localWhisperModel=\(next.localWhisperModel), editingModel=\(next.editingModel.rawValue), enableAIEditing=\(next.enableAIEditing), translateToEnglish=\(next.autoTranslateRussianToEnglish)")
+            appendLog("Settings saved: transcriptionModel=\(OpenAITranscriptionClient.model), editingModel=\(next.editingModel.rawValue), enableAIEditing=\(next.enableAIEditing), translateToEnglish=\(next.autoTranslateRussianToEnglish)")
         } catch {
             statusText = "Could not save config: \(error.localizedDescription)"
             appendLog("Settings save failed: \(error.localizedDescription)")
@@ -392,54 +358,36 @@ final class AppViewModel: ObservableObject {
 
     private func transcribeRecordedFile(fileURL: URL, targetApp: NSRunningApplication?, shouldInsertExternally: Bool, replacingHistoryItemID: UUID? = nil) async throws {
         workflowPhase = .transcribing
-        statusText = configuration.transcriptionProvider == .openAI ? "Uploading and transcribing audio..." : "Transcribing audio locally..."
+        statusText = "Uploading and transcribing audio..."
         let apiKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let needsAPIKey = configuration.transcriptionProvider == .openAI || configuration.enableAIEditing
-        guard !needsAPIKey || !apiKey.isEmpty else {
+        guard !apiKey.isEmpty else {
             isShowingMissingKeyAlert = true
             appendLog("Insertion aborted: missing API key")
             throw OpenAITranscriptionError.requestFailed("API key required")
         }
 
         let targetAppName = targetApp?.localizedName ?? "none"
-        let transcriptionModel = configuration.model
         let replacingHistoryItem = replacingHistoryItemID != nil
         appendLog(
             "Transcription flow started: file=\(fileURL.lastPathComponent), targetApp=\(targetAppName), shouldInsertExternally=\(shouldInsertExternally), replacingHistoryItem=\(replacingHistoryItem)"
         )
 
-        let rawText: String
-        switch configuration.transcriptionProvider {
-        case .openAI:
-            let client = OpenAITranscriptionClient()
-            rawText = try await client.transcribe(
-                audioFileURL: fileURL,
-                apiKey: apiKey,
-                model: transcriptionModel,
-                onAttempt: { [weak self] attempt, total in
-                    Task { @MainActor [weak self] in
-                        self?.appendLog("Transcription attempt \(attempt)/\(total)")
-                    }
-                },
-                onLog: { [weak self] message in
-                    Task { @MainActor [weak self] in
-                        self?.appendLog(message)
-                    }
+        let client = OpenAITranscriptionClient()
+        let rawText = try await client.transcribe(
+            audioFileURL: fileURL,
+            apiKey: apiKey,
+            keywords: configuration.preferredTerms,
+            onAttempt: { [weak self] attempt, total in
+                Task { @MainActor [weak self] in
+                    self?.appendLog("Transcription attempt \(attempt)/\(total)")
                 }
-            )
-        case .localWhisper:
-            let client = LocalWhisperTranscriptionClient()
-            rawText = try await client.transcribe(
-                audioFileURL: fileURL,
-                executablePath: configuration.localWhisperExecutablePath,
-                model: configuration.localWhisperModel,
-                onLog: { [weak self] message in
-                    Task { @MainActor [weak self] in
-                        self?.appendLog(message)
-                    }
+            },
+            onLog: { [weak self] message in
+                Task { @MainActor [weak self] in
+                    self?.appendLog(message)
                 }
-            )
-        }
+            }
+        )
 
         appendLog("Transcription complete: \(rawText.count) chars")
         if let replacingHistoryItemID {

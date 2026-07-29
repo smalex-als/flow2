@@ -18,6 +18,8 @@ enum OpenAITranscriptionError: LocalizedError {
 }
 
 final class OpenAITranscriptionClient {
+    static let model = "gpt-transcribe"
+
     private static let maxAttempts = 3
     private static let requestTimeout: TimeInterval = 60
     private static let resourceTimeout: TimeInterval = 180
@@ -29,17 +31,22 @@ final class OpenAITranscriptionClient {
     func transcribe(
         audioFileURL: URL,
         apiKey: String,
-        model: String,
+        keywords: [String],
         onAttempt: (@Sendable (Int, Int) -> Void)? = nil,
         onLog: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         var lastRetryableError: URLError?
         let fileDescription = Self.describeFile(at: audioFileURL)
         let boundary = "Boundary-\(UUID().uuidString)"
-        let body = try makeMultipartBody(audioFileURL: audioFileURL, model: model, boundary: boundary)
+        let normalizedKeywords = Self.normalizedKeywords(keywords)
+        let body = try makeMultipartBody(
+            audioFileURL: audioFileURL,
+            keywords: normalizedKeywords,
+            boundary: boundary
+        )
 
         onLog?(
-            "Transcription request prepared: file=\(audioFileURL.lastPathComponent), \(fileDescription), bodyBytes=\(body.count), model=\(model), requestTimeout=\(Int(Self.requestTimeout))s, resourceTimeout=\(Int(Self.resourceTimeout))s, transport=freshEphemeralURLSession"
+            "Transcription request prepared: file=\(audioFileURL.lastPathComponent), \(fileDescription), bodyBytes=\(body.count), model=\(Self.model), keywordHints=\(normalizedKeywords.count), skippedKeywordHints=\(keywords.count - normalizedKeywords.count), requestTimeout=\(Int(Self.requestTimeout))s, resourceTimeout=\(Int(Self.resourceTimeout))s, transport=freshEphemeralURLSession"
         )
 
         for attempt in 1 ... Self.maxAttempts {
@@ -121,13 +128,23 @@ final class OpenAITranscriptionClient {
         throw OpenAITranscriptionError.invalidResponse
     }
 
-    private func makeMultipartBody(audioFileURL: URL, model: String, boundary: String) throws -> Data {
+    private func makeMultipartBody(audioFileURL: URL, keywords: [String], boundary: String) throws -> Data {
         let audioData = try Data(contentsOf: audioFileURL)
         var body = Data()
 
         body.append(string: "--\(boundary)\r\n")
         body.append(string: "Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-        body.append(string: "\(model)\r\n")
+        body.append(string: "\(Self.model)\r\n")
+
+        body.append(string: "--\(boundary)\r\n")
+        body.append(string: "Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
+        body.append(string: "json\r\n")
+
+        for keyword in keywords {
+            body.append(string: "--\(boundary)\r\n")
+            body.append(string: "Content-Disposition: form-data; name=\"keywords[]\"\r\n\r\n")
+            body.append(string: "\(keyword)\r\n")
+        }
 
         body.append(string: "--\(boundary)\r\n")
         body.append(string: "Content-Disposition: form-data; name=\"file\"; filename=\"\(audioFileURL.lastPathComponent)\"\r\n")
@@ -137,6 +154,17 @@ final class OpenAITranscriptionClient {
 
         body.append(string: "--\(boundary)--\r\n")
         return body
+    }
+
+    private static func normalizedKeywords(_ keywords: [String]) -> [String] {
+        let forbiddenCharacters = CharacterSet(charactersIn: "<>\r\n")
+        var seen = Set<String>()
+
+        return keywords
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { $0.rangeOfCharacter(from: forbiddenCharacters) == nil }
+            .filter { seen.insert($0.lowercased()).inserted }
     }
 
     private static func makeSession() -> URLSession {
