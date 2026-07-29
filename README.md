@@ -174,6 +174,9 @@ make run CONFIGURATION=Release
 
 ## Notes
 
+- `About Flow2` reports the marketing version, a build number taken from the commit count, the
+  commit it was built from, and that commit's subject — so a running app can be tied to the exact
+  set of changes in it. `MARKETING_VERSION` in the project is the only number to bump by hand.
 - `Launch at login` is more reliable when the app is run from `/Applications/Flow2.app`
 - Accessibility trust is tied to the exact app bundle path
 - Debug and runtime status are intentionally visible in the main window

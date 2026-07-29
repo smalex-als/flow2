@@ -190,7 +190,48 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\nbuild_info=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BuildInfo.plist\"\n/bin/mkdir -p \"$(/usr/bin/dirname \"$build_info\")\"\n/usr/bin/plutil -create xml1 \"$build_info\"\n/usr/bin/plutil -insert BuildDate -string \"$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$build_info\"\n/usr/bin/plutil -insert Configuration -string \"$CONFIGURATION\" \"$build_info\"\n/usr/bin/plutil -insert SourceRoot -string \"$SRCROOT\" \"$build_info\"\n";
+			shellScript = "set -eu
+
+build_info=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BuildInfo.plist\"
+/bin/mkdir -p \"$(/usr/bin/dirname \"$build_info\")\"
+
+# The build number is the commit count, so it rises on its own with every change that lands and
+# never has to be remembered. A build from an export with no repository falls back to the setting.
+commit_count=\"\"
+commit=\"\"
+branch=\"\"
+subject=\"\"
+dirty=\"no\"
+
+if [ -d \"${SRCROOT}/.git\" ] && /usr/bin/which -s git; then
+  commit_count=\"$(git -C \"$SRCROOT\" rev-list --count HEAD 2>/dev/null || true)\"
+  commit=\"$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || true)\"
+  branch=\"$(git -C \"$SRCROOT\" rev-parse --abbrev-ref HEAD 2>/dev/null || true)\"
+  subject=\"$(git -C \"$SRCROOT\" log -1 --pretty=%s 2>/dev/null || true)\"
+  if [ -n \"$(git -C \"$SRCROOT\" status --porcelain 2>/dev/null || true)\" ]; then
+    dirty=\"yes\"
+  fi
+fi
+
+build_number=\"${commit_count:-$CURRENT_PROJECT_VERSION}\"
+
+/usr/bin/plutil -create xml1 \"$build_info\"
+/usr/bin/plutil -insert BuildDate -string \"$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$build_info\"
+/usr/bin/plutil -insert Configuration -string \"$CONFIGURATION\" \"$build_info\"
+/usr/bin/plutil -insert SourceRoot -string \"$SRCROOT\" \"$build_info\"
+/usr/bin/plutil -insert BuildNumber -string \"$build_number\" \"$build_info\"
+/usr/bin/plutil -insert Commit -string \"$commit\" \"$build_info\"
+/usr/bin/plutil -insert Branch -string \"$branch\" \"$build_info\"
+/usr/bin/plutil -insert CommitSubject -string \"$subject\" \"$build_info\"
+/usr/bin/plutil -insert Dirty -string \"$dirty\" \"$build_info\"
+
+# Keep the bundle itself in step, so Finder and the About window never disagree. This phase runs
+# before code signing, so rewriting here is safe.
+app_plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"
+if [ -f \"$app_plist\" ]; then
+  /usr/bin/plutil -replace CFBundleVersion -string \"$build_number\" \"$app_plist\"
+fi
+";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -230,7 +271,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Flow2/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.smalex.Flow2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -251,7 +292,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Flow2/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.smalex.Flow2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

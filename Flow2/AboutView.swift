@@ -21,6 +21,10 @@ struct AboutView: View {
             }
 
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                if let change = buildInformation.latestChange {
+                    informationRow("Latest change", change)
+                }
+                informationRow("Commit", buildInformation.commitDescription)
                 informationRow("Built", buildInformation.formattedBuildDate)
                 informationRow("Configuration", buildInformation.configuration)
                 informationRow("Built from", buildInformation.sourceRoot)
@@ -56,6 +60,10 @@ private struct BuildInformation {
     let buildDate: Date?
     let configuration: String
     let sourceRoot: String
+    let commit: String
+    let branch: String
+    let latestChange: String?
+    let isDirty: Bool
 
     static let current: BuildInformation = {
         let bundle = Bundle.main
@@ -64,12 +72,24 @@ private struct BuildInformation {
             ISO8601DateFormatter().date(from: $0)
         }
 
+        func string(_ key: String) -> String {
+            (dictionary?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+
+        let buildNumber = string("BuildNumber")
+
         return BuildInformation(
             version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown",
-            build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown",
+            build: buildNumber.isEmpty
+                ? bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+                : buildNumber,
             buildDate: buildDate,
             configuration: dictionary?["Configuration"] as? String ?? "Unknown",
-            sourceRoot: dictionary?["SourceRoot"] as? String ?? "Not recorded"
+            sourceRoot: dictionary?["SourceRoot"] as? String ?? "Not recorded",
+            commit: string("Commit"),
+            branch: string("Branch"),
+            latestChange: string("CommitSubject").isEmpty ? nil : string("CommitSubject"),
+            isDirty: string("Dirty") == "yes"
         )
     }()
 
@@ -90,7 +110,22 @@ private struct BuildInformation {
     }
 
     var versionDescription: String {
-        "Version \(version) (\(build))"
+        "Version \(version) (build \(build))"
+    }
+
+    /// Names the exact source the build came from, so a version number alone never has to carry the
+    /// question of which changes are actually in the app that is running.
+    var commitDescription: String {
+        guard !commit.isEmpty else { return "Not recorded" }
+
+        var description = commit
+        if !branch.isEmpty {
+            description += " on \(branch)"
+        }
+        if isDirty {
+            description += " + uncommitted changes"
+        }
+        return description
     }
 
     var formattedBuildDate: String {

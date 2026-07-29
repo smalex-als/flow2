@@ -45,7 +45,7 @@ struct TranscriptHistoryItem: Identifiable, Codable {
 enum DictationMode: String, Codable, CaseIterable, Identifiable, Equatable {
     /// Insert what was said, in the language it was said.
     case dictate
-    /// Insert an English translation of what was said.
+    /// Insert a translation of what was said, into the language chosen in Settings.
     case translate
 
     var id: String { rawValue }
@@ -59,12 +59,13 @@ enum DictationMode: String, Codable, CaseIterable, Identifiable, Equatable {
         }
     }
 
+    /// Deliberately names no language: the pair is configurable and lives in Settings.
     var shortDescription: String {
         switch self {
         case .dictate:
             return "as spoken"
         case .translate:
-            return "translated to English"
+            return "with translation"
         }
     }
 
@@ -331,7 +332,11 @@ final class AppViewModel: ObservableObject {
                 return
             }
 
-            recordingIndicator.show(mode: mode, targetLanguage: configuration.translationTargetLanguage)
+            recordingIndicator.show(
+                mode: mode,
+                sourceLanguage: configuration.translationSourceLanguage,
+                targetLanguage: configuration.translationTargetLanguage
+            )
         } catch {
             workflowPhase = .idle
             insertionTargetApp = nil
@@ -574,10 +579,12 @@ final class AppViewModel: ObservableObject {
 final class RecordingIndicatorController {
     private var panel: NSPanel?
 
-    func show(mode: DictationMode, targetLanguage: TranslationLanguage) {
+    func show(mode: DictationMode, sourceLanguage: TranslationLanguage?, targetLanguage: TranslationLanguage) {
         let panel = panel ?? makePanel()
         self.panel = panel
-        panel.contentView = NSHostingView(rootView: RecordingIndicatorView(mode: mode, targetLanguage: targetLanguage))
+        panel.contentView = NSHostingView(
+            rootView: RecordingIndicatorView(mode: mode, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
+        )
         position(panel)
         panel.orderFrontRegardless()
     }
@@ -614,10 +621,11 @@ final class RecordingIndicatorController {
     }
 }
 
-/// Names the mode, because which shortcut was pressed is the only thing that decides whether the
-/// result comes back translated, and that is easy to get wrong mid-sentence.
+/// Spells out what this recording will produce. Which shortcut was pressed is the only thing that
+/// decides it, and that is easy to get wrong mid-sentence.
 private struct RecordingIndicatorView: View {
     let mode: DictationMode
+    let sourceLanguage: TranslationLanguage?
     let targetLanguage: TranslationLanguage
 
     var body: some View {
@@ -629,7 +637,7 @@ private struct RecordingIndicatorView: View {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 38, weight: .semibold))
 
-                Text(mode == .translate ? targetLanguage.shortCode : "AS SPOKEN")
+                Text(caption)
                     .font(.system(size: mode == .translate ? 13 : 9, weight: .bold))
                     .kerning(0.5)
             }
@@ -639,6 +647,15 @@ private struct RecordingIndicatorView: View {
         .overlay {
             Circle()
                 .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        }
+    }
+
+    private var caption: String {
+        switch mode {
+        case .dictate:
+            return "AS SPOKEN"
+        case .translate:
+            return "\(sourceLanguage?.shortCode ?? "ANY") → \(targetLanguage.shortCode)"
         }
     }
 }
