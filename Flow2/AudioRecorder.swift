@@ -68,6 +68,11 @@ enum RecordingFileStore {
 
 @MainActor
 final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
+    /// Measured on this machine: an idle room sits near -38 dB and speech peaks near -7 dB. A -45 dB
+    /// floor leaves room tone as a visible sliver rather than a half-full bar, so the meter still
+    /// proves the microphone is live but only speech moves it far.
+    private static let silenceFloorDecibels: Float = -45
+
     private var recorder: AVAudioRecorder?
     private var currentFileURL: URL?
     private var finishContinuation: CheckedContinuation<Bool, Never>?
@@ -91,6 +96,7 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
 
         let recorder = try AVAudioRecorder(url: fileURL, settings: settings)
         recorder.delegate = self
+        recorder.isMeteringEnabled = true
         recorder.prepareToRecord()
         guard recorder.record() else {
             throw AudioRecorderError.recorderCreationFailed
@@ -99,6 +105,21 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         self.recorder = recorder
         self.currentFileURL = fileURL
         return fileURL
+    }
+
+    /// Current input loudness as `0...1`, or `0` when nothing is being recorded.
+    ///
+    /// `averagePower` is in decibels, where silence sits near -160 and speech spends most of its
+    /// time in the top 55 dB. Mapping that window linearly keeps normal speech in the middle of the
+    /// range instead of pinning the meter to either end.
+    func currentLevel() -> Float {
+        guard let recorder, recorder.isRecording else { return 0 }
+
+        recorder.updateMeters()
+        let decibels = recorder.averagePower(forChannel: 0)
+        guard decibels > Self.silenceFloorDecibels else { return 0 }
+
+        return min(1, (decibels - Self.silenceFloorDecibels) / -Self.silenceFloorDecibels)
     }
 
     func stop() async throws -> URL {

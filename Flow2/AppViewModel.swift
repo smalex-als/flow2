@@ -335,7 +335,8 @@ final class AppViewModel: ObservableObject {
             recordingIndicator.show(
                 mode: mode,
                 sourceLanguage: configuration.translationSourceLanguage,
-                targetLanguage: configuration.translationTargetLanguage
+                targetLanguage: configuration.translationTargetLanguage,
+                level: { [weak self] in self?.recorder.currentLevel() ?? 0 }
             )
         } catch {
             workflowPhase = .idle
@@ -576,20 +577,61 @@ final class AppViewModel: ObservableObject {
 }
 
 @MainActor
-final class RecordingIndicatorController {
-    private var panel: NSPanel?
+final class RecordingLevelModel: ObservableObject {
+    @Published fileprivate(set) var level: Float = 0
 
-    func show(mode: DictationMode, sourceLanguage: TranslationLanguage?, targetLanguage: TranslationLanguage) {
+    /// Rises immediately but falls back gradually, so the meter tracks speech instead of flickering
+    /// through every pause between syllables.
+    fileprivate func apply(_ newLevel: Float) {
+        level = max(newLevel, level * 0.82)
+    }
+
+    fileprivate func reset() {
+        level = 0
+    }
+}
+
+@MainActor
+final class RecordingIndicatorController {
+    private static let meteringInterval = Duration.milliseconds(50)
+
+    private var panel: NSPanel?
+    private let levelModel = RecordingLevelModel()
+    private var meteringTask: Task<Void, Never>?
+
+    func show(
+        mode: DictationMode,
+        sourceLanguage: TranslationLanguage?,
+        targetLanguage: TranslationLanguage,
+        level: @escaping @MainActor () -> Float
+    ) {
         let panel = panel ?? makePanel()
         self.panel = panel
+        levelModel.reset()
         panel.contentView = NSHostingView(
-            rootView: RecordingIndicatorView(mode: mode, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
+            rootView: RecordingIndicatorView(
+                mode: mode,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                levelModel: levelModel
+            )
         )
         position(panel)
         panel.orderFrontRegardless()
+
+        meteringTask?.cancel()
+        meteringTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.levelModel.apply(level())
+                try? await Task.sleep(for: Self.meteringInterval)
+            }
+        }
     }
 
     func hide() {
+        meteringTask?.cancel()
+        meteringTask = nil
+        levelModel.reset()
         panel?.orderOut(nil)
     }
 
@@ -624,18 +666,23 @@ final class RecordingIndicatorController {
 /// Spells out what this recording will produce. Which shortcut was pressed is the only thing that
 /// decides it, and that is easy to get wrong mid-sentence.
 private struct RecordingIndicatorView: View {
+    private static let meterWidth: CGFloat = 74
+
     let mode: DictationMode
     let sourceLanguage: TranslationLanguage?
     let targetLanguage: TranslationLanguage
+    @ObservedObject var levelModel: RecordingLevelModel
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.black.opacity(0.82))
 
-            VStack(spacing: 6) {
+            VStack(spacing: 8) {
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 38, weight: .semibold))
+                    .font(.system(size: 34, weight: .semibold))
+
+                levelMeter
 
                 Text(caption)
                     .font(.system(size: mode == .translate ? 13 : 9, weight: .bold))
@@ -648,6 +695,21 @@ private struct RecordingIndicatorView: View {
             Circle()
                 .stroke(Color.white.opacity(0.14), lineWidth: 1)
         }
+    }
+
+    /// A dead microphone and a silent room look the same on a static icon. The meter is the one
+    /// thing here that proves audio is actually arriving.
+    private var levelMeter: some View {
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(Color.white.opacity(0.2))
+                .frame(width: Self.meterWidth, height: 4)
+
+            Capsule()
+                .fill(Color.white)
+                .frame(width: Self.meterWidth * CGFloat(levelModel.level), height: 4)
+        }
+        .animation(.linear(duration: 0.06), value: levelModel.level)
     }
 
     private var caption: String {
