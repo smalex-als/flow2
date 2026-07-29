@@ -310,7 +310,10 @@ final class AppViewModel: ObservableObject {
     }
 
     private func startRecording(mode: DictationMode) async {
-        guard workflowPhase == .idle else { return }
+        guard workflowPhase == .idle else {
+            declineRecording(mode: mode)
+            return
+        }
 
         workflowPhase = .startingRecording
         stopRequestedDuringRecordingStart = false
@@ -345,6 +348,34 @@ final class AppViewModel: ObservableObject {
             activeMode = .dictate
             statusText = "Failed to start recording: \(error.localizedDescription)"
             appendLog("Recording failed to start: \(error.localizedDescription)")
+        }
+    }
+
+    /// A shortcut pressed mid-flow used to do nothing at all, which reads exactly like a broken
+    /// hotkey — the user starts speaking and only finds out afterwards that nothing was captured.
+    private func declineRecording(mode: DictationMode) {
+        NSSound.beep()
+        appendLog("Hotkey ignored: \(mode.rawValue) pressed while \(workflowDescription.lowercased())")
+
+        // A recording already has the panel and explains itself; replacing it would be a downgrade.
+        guard !isRecording else { return }
+        recordingIndicator.showBusy(message: workflowDescription)
+    }
+
+    private var workflowDescription: String {
+        switch workflowPhase {
+        case .idle:
+            return "Ready"
+        case .startingRecording, .recording:
+            return "Recording"
+        case .finalizingRecording:
+            return "Finishing"
+        case .transcribing:
+            return "Transcribing"
+        case .translating:
+            return "Translating"
+        case .inserting:
+            return "Inserting"
         }
     }
 
@@ -595,9 +626,12 @@ final class RecordingLevelModel: ObservableObject {
 final class RecordingIndicatorController {
     private static let meteringInterval = Duration.milliseconds(50)
 
+    private static let busyNoticeDuration = Duration.milliseconds(1100)
+
     private var panel: NSPanel?
     private let levelModel = RecordingLevelModel()
     private var meteringTask: Task<Void, Never>?
+    private var busyDismissTask: Task<Void, Never>?
 
     func show(
         mode: DictationMode,
@@ -607,6 +641,8 @@ final class RecordingIndicatorController {
     ) {
         let panel = panel ?? makePanel()
         self.panel = panel
+        // A notice still counting down would otherwise hide the recording that just started.
+        busyDismissTask?.cancel()
         levelModel.reset()
         panel.contentView = NSHostingView(
             rootView: RecordingIndicatorView(
@@ -628,9 +664,30 @@ final class RecordingIndicatorController {
         }
     }
 
+    /// Shows, briefly, that a shortcut arrived while Flow2 was still working — and what it is doing.
+    func showBusy(message: String) {
+        meteringTask?.cancel()
+        meteringTask = nil
+
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        panel.contentView = NSHostingView(rootView: BusyIndicatorView(message: message))
+        position(panel)
+        panel.orderFrontRegardless()
+
+        busyDismissTask?.cancel()
+        busyDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.busyNoticeDuration)
+            guard !Task.isCancelled else { return }
+            self?.hide()
+        }
+    }
+
     func hide() {
         meteringTask?.cancel()
         meteringTask = nil
+        busyDismissTask?.cancel()
+        busyDismissTask = nil
         levelModel.reset()
         panel?.orderOut(nil)
     }
@@ -665,6 +722,36 @@ final class RecordingIndicatorController {
 
 /// Spells out what this recording will produce. Which shortcut was pressed is the only thing that
 /// decides it, and that is easy to get wrong mid-sentence.
+/// The crossed-out microphone is the point: Flow2 is awake and working, but it is not listening,
+/// so anything said right now is not being captured.
+private struct BusyIndicatorView: View {
+    let message: String
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.82))
+
+            VStack(spacing: 8) {
+                Image(systemName: "mic.slash.fill")
+                    .font(.system(size: 34, weight: .semibold))
+
+                Text(message.uppercased())
+                    .font(.system(size: 10, weight: .bold))
+                    .kerning(0.5)
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+        }
+        .frame(width: 132, height: 132)
+        .overlay {
+            Circle()
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        }
+    }
+}
+
 private struct RecordingIndicatorView: View {
     private static let meterWidth: CGFloat = 74
 

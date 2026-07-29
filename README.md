@@ -39,6 +39,9 @@ Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 6. The result is saved into transcript history.
 7. Flow2 inserts the text back into the target app.
 
+A shortcut pressed while a previous recording is still being processed is refused, not queued.
+Flow2 beeps and shows what it is busy with, so you find out before speaking rather than after.
+
 ## AI Pipeline
 
 ### 1. Transcription
