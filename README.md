@@ -12,7 +12,7 @@
 - 💻 Dedicated typing path for `Terminal` and `iTerm`
 - 📋 Paste fallback when direct insertion is not available
 - 🕘 Persistent transcript history with `Copy` and `Delete`
-- 🍎 Menu bar controls, hotkey presets, launch-at-login, and visible debug status
+- 🍎 Menu bar controls, custom global hotkeys, launch-at-login, and visible debug status
 
 ## How It Works
 
@@ -81,7 +81,7 @@ Current settings:
 - `Auto-edit transcript with AI`
 - `Auto-translate Russian to English`
 - Preferred terms dictionary
-- Push-to-talk hotkey preset
+- Custom push-to-talk hotkeys
 - `Launch Flow2 at login`
 
 ## Permissions

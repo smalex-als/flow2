@@ -34,18 +34,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyManagers = []
 
         let configuration = viewModel.configuration
-        var requests: [(id: UInt32, preset: HotKeyPreset, behavior: TranslationBehavior)] = [
-            (1, configuration.hotKeyPreset, .followSettings)
+        var requests: [(id: UInt32, shortcut: HotKeyShortcut, behavior: TranslationBehavior)] = [
+            (1, configuration.hotKey, .followSettings)
         ]
 
-        if configuration.enableNoTranslateHotKey, configuration.noTranslateHotKeyPreset != configuration.hotKeyPreset {
-            requests.append((2, configuration.noTranslateHotKeyPreset, .keepOriginalLanguage))
+        if configuration.enableNoTranslateHotKey, configuration.noTranslateHotKey != configuration.hotKey {
+            requests.append((2, configuration.noTranslateHotKey, .keepOriginalLanguage))
         }
 
         var statusParts: [String] = []
 
         for request in requests {
-            let manager = GlobalHotKeyManager(preset: request.preset, hotKeyID: request.id)
+            let manager = GlobalHotKeyManager(shortcut: request.shortcut, hotKeyID: request.id)
             manager.onHotKeyPressed = { [weak viewModel] in
                 guard let viewModel else { return }
                 Task { @MainActor in
@@ -62,9 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try manager.register()
                 hotKeyManagers.append(manager)
-                statusParts.append("\(request.preset.displayName) (\(request.behavior.shortDescription))")
+                statusParts.append("\(request.shortcut.displayName) (\(request.behavior.shortDescription))")
             } catch {
-                statusParts.append("\(request.preset.displayName) failed: \(error.localizedDescription)")
+                statusParts.append("\(request.shortcut.displayName) failed: \(error.localizedDescription)")
             }
         }
 
@@ -90,14 +90,14 @@ final class GlobalHotKeyManager {
     var onHotKeyPressed: (() -> Void)?
     var onHotKeyReleased: (() -> Void)?
 
-    private let preset: HotKeyPreset
+    private let shortcut: HotKeyShortcut
     private let hotKeyID: UInt32
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
     private var isPressed = false
 
-    init(preset: HotKeyPreset, hotKeyID: UInt32) {
-        self.preset = preset
+    init(shortcut: HotKeyShortcut, hotKeyID: UInt32) {
+        self.shortcut = shortcut
         self.hotKeyID = hotKeyID
     }
 
@@ -132,8 +132,8 @@ final class GlobalHotKeyManager {
         }
 
         let eventHotKeyID = EventHotKeyID(signature: OSType(0x464C4F57), id: hotKeyID)
-        let registerStatus = RegisterEventHotKey(UInt32(kVK_Space),
-                                                 UInt32(carbonModifiers(for: preset)),
+        let registerStatus = RegisterEventHotKey(shortcut.keyCode,
+                                                 UInt32(carbonModifiers(for: shortcut.modifiers)),
                                                  eventHotKeyID,
                                                  GetApplicationEventTarget(),
                                                  0,
@@ -177,14 +177,20 @@ final class GlobalHotKeyManager {
         }
     }
 
-    private func carbonModifiers(for preset: HotKeyPreset) -> Int {
-        switch preset {
-        case .controlSpace:
-            return controlKey
-        case .shiftCommandSpace:
-            return cmdKey | shiftKey
-        case .optionCommandSpace:
-            return cmdKey | optionKey
+    private func carbonModifiers(for modifiers: HotKeyModifiers) -> Int {
+        var result = 0
+        if modifiers.contains(.command) {
+            result |= cmdKey
         }
+        if modifiers.contains(.option) {
+            result |= optionKey
+        }
+        if modifiers.contains(.control) {
+            result |= controlKey
+        }
+        if modifiers.contains(.shift) {
+            result |= shiftKey
+        }
+        return result
     }
 }

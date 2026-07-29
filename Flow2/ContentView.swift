@@ -39,7 +39,7 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
-                    statusChip(title: viewModel.configuration.hotKeyPreset.displayName, systemImage: "keyboard")
+                    statusChip(title: viewModel.configuration.hotKey.displayName, systemImage: "keyboard")
                     statusChip(title: viewModel.configuration.enableAIEditing ? "AI Edit On" : "AI Edit Off", systemImage: "sparkles")
                     statusChip(title: viewModel.configuration.autoTranslateRussianToEnglish ? "Translate On" : "Translate Off", systemImage: "character.book.closed")
                     statusChip(title: "\(viewModel.transcriptHistory.count) Saved", systemImage: "text.quote")

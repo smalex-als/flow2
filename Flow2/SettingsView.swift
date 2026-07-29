@@ -8,9 +8,9 @@ struct SettingsView: View {
     @State private var draftEnableAIEditing = false
     @State private var draftAutoTranslateRussianToEnglish = false
     @State private var draftPreferredTerms = ""
-    @State private var draftHotKeyPreset: HotKeyPreset = .controlSpace
+    @State private var draftHotKey = HotKeyShortcut.controlSpace
     @State private var draftEnableNoTranslateHotKey = false
-    @State private var draftNoTranslateHotKeyPreset: HotKeyPreset = AppConfiguration.defaultNoTranslateHotKeyPreset
+    @State private var draftNoTranslateHotKey = AppConfiguration.defaultNoTranslateHotKey
     @State private var draftLaunchAtLogin = false
     @State private var didLoadDrafts = false
 
@@ -79,27 +79,30 @@ struct SettingsView: View {
                 }
 
                 Section("Hotkey") {
-                    Picker("Dictation with translation", selection: $draftHotKeyPreset) {
-                        ForEach(HotKeyPreset.allCases) { preset in
-                            Text(preset.displayName)
-                                .tag(preset)
-                        }
-                    }
-                    .onChange(of: draftHotKeyPreset) { _, newValue in
-                        if draftNoTranslateHotKeyPreset == newValue {
-                            draftNoTranslateHotKeyPreset = AppConfiguration.fallbackNoTranslateHotKeyPreset(avoiding: newValue)
-                        }
+                    LabeledContent("Dictation with translation") {
+                        HotKeyRecorderView(shortcut: $draftHotKey)
+                            .frame(width: 180)
                     }
 
                     Toggle("Enable dictation without translation", isOn: $draftEnableNoTranslateHotKey)
 
-                    Picker("Dictation without translation", selection: $draftNoTranslateHotKeyPreset) {
-                        ForEach(HotKeyPreset.allCases.filter { $0 != draftHotKeyPreset }) { preset in
-                            Text(preset.displayName)
-                                .tag(preset)
-                        }
+                    LabeledContent("Dictation without translation") {
+                        HotKeyRecorderView(
+                            shortcut: $draftNoTranslateHotKey,
+                            isEnabled: draftEnableNoTranslateHotKey
+                        )
+                        .frame(width: 180)
                     }
-                    .disabled(!draftEnableNoTranslateHotKey)
+
+                    if hasHotKeyConflict {
+                        Text("Choose different shortcuts for the two dictation modes.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    Text("Click a shortcut field, then press any key with Control, Option, Shift, or Command. Press Escape to cancel recording.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     Text("Dictation with translation follows the translation setting above. Dictation without translation always returns the transcript in the language you spoke.")
                         .font(.caption)
@@ -125,6 +128,7 @@ struct SettingsView: View {
                     saveSettings()
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(hasHotKeyConflict)
             }
         }
         .padding(18)
@@ -137,9 +141,9 @@ struct SettingsView: View {
             draftEnableAIEditing = viewModel.configuration.enableAIEditing
             draftAutoTranslateRussianToEnglish = viewModel.configuration.autoTranslateRussianToEnglish
             draftPreferredTerms = serializePreferredTerms(viewModel.configuration.preferredTerms)
-            draftHotKeyPreset = viewModel.configuration.hotKeyPreset
+            draftHotKey = viewModel.configuration.hotKey
             draftEnableNoTranslateHotKey = viewModel.configuration.enableNoTranslateHotKey
-            draftNoTranslateHotKeyPreset = viewModel.configuration.noTranslateHotKeyPreset
+            draftNoTranslateHotKey = viewModel.configuration.noTranslateHotKey
             draftLaunchAtLogin = viewModel.configuration.launchAtLogin
             didLoadDrafts = true
         }
@@ -156,6 +160,10 @@ struct SettingsView: View {
         terms.joined(separator: "\n")
     }
 
+    private var hasHotKeyConflict: Bool {
+        draftEnableNoTranslateHotKey && draftHotKey == draftNoTranslateHotKey
+    }
+
     private func saveSettings() {
         Task {
             let didSave = await viewModel.saveConfiguration(
@@ -164,9 +172,9 @@ struct SettingsView: View {
                 enableAIEditing: draftEnableAIEditing,
                 autoTranslateRussianToEnglish: draftAutoTranslateRussianToEnglish,
                 preferredTerms: parsePreferredTerms(draftPreferredTerms),
-                hotKeyPreset: draftHotKeyPreset,
+                hotKey: draftHotKey,
                 enableNoTranslateHotKey: draftEnableNoTranslateHotKey,
-                noTranslateHotKeyPreset: draftNoTranslateHotKeyPreset,
+                noTranslateHotKey: draftNoTranslateHotKey,
                 launchAtLogin: draftLaunchAtLogin
             )
 

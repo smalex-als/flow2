@@ -104,11 +104,11 @@ private struct MenuBarContentView: View {
 
     private var hotKeyHint: String {
         let configuration = viewModel.configuration
-        guard configuration.enableNoTranslateHotKey, configuration.noTranslateHotKeyPreset != configuration.hotKeyPreset else {
-            return configuration.hotKeyPreset.displayName
+        guard configuration.enableNoTranslateHotKey, configuration.noTranslateHotKey != configuration.hotKey else {
+            return configuration.hotKey.displayName
         }
 
-        return "\(configuration.hotKeyPreset.displayName) with translation · \(configuration.noTranslateHotKeyPreset.displayName) without translation"
+        return "\(configuration.hotKey.displayName) with translation · \(configuration.noTranslateHotKey.displayName) without translation"
     }
 
     private var aiEditingBinding: Binding<Bool> {

@@ -128,18 +128,21 @@ final class AppViewModel: ObservableObject {
         _ = await saveConfiguration(next)
     }
 
-    func saveConfiguration(apiKey: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKeyPreset: HotKeyPreset, enableNoTranslateHotKey: Bool, noTranslateHotKeyPreset: HotKeyPreset, launchAtLogin: Bool) async -> Bool {
+    func saveConfiguration(apiKey: String, editingModel: EditingModelPreset, enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool, preferredTerms: [String], hotKey: HotKeyShortcut, enableNoTranslateHotKey: Bool, noTranslateHotKey: HotKeyShortcut, launchAtLogin: Bool) async -> Bool {
+        guard !enableNoTranslateHotKey || hotKey != noTranslateHotKey else {
+            statusText = "The translation and no-translation hotkeys must be different."
+            return false
+        }
+
         var next = configuration
         next.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         next.editingModel = editingModel
         next.enableAIEditing = enableAIEditing
         next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
         next.preferredTerms = preferredTerms
-        next.hotKeyPreset = hotKeyPreset
+        next.hotKey = hotKey
         next.enableNoTranslateHotKey = enableNoTranslateHotKey
-        next.noTranslateHotKeyPreset = noTranslateHotKeyPreset == hotKeyPreset
-            ? AppConfiguration.fallbackNoTranslateHotKeyPreset(avoiding: hotKeyPreset)
-            : noTranslateHotKeyPreset
+        next.noTranslateHotKey = noTranslateHotKey
         next.launchAtLogin = launchAtLogin
 
         return await saveConfiguration(next)

@@ -1,24 +1,5 @@
 import Foundation
 
-enum HotKeyPreset: String, Codable, CaseIterable, Identifiable {
-    case controlSpace
-    case shiftCommandSpace
-    case optionCommandSpace
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .controlSpace:
-            return "Control+Space"
-        case .shiftCommandSpace:
-            return "Shift+Command+Space"
-        case .optionCommandSpace:
-            return "Option+Command+Space"
-        }
-    }
-}
-
 enum EditingModelPreset: String, Codable, CaseIterable, Identifiable {
     case gpt56Luna = "gpt-5.6-luna"
     case gpt56Terra = "gpt-5.6-terra"
@@ -69,6 +50,23 @@ struct AppConfiguration: Codable {
         let preferred: String?
     }
 
+    private enum LegacyHotKeyPreset: String, Decodable {
+        case controlSpace
+        case shiftCommandSpace
+        case optionCommandSpace
+
+        var shortcut: HotKeyShortcut {
+            switch self {
+            case .controlSpace:
+                return .controlSpace
+            case .shiftCommandSpace:
+                return .shiftCommandSpace
+            case .optionCommandSpace:
+                return .optionCommandSpace
+            }
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case configVersion
         case apiKey
@@ -77,15 +75,17 @@ struct AppConfiguration: Codable {
         case autoTranslateRussianToEnglish
         case preferredTerms
         case pronunciationDictionary
+        case hotKey
         case hotKeyPreset
         case enableNoTranslateHotKey
+        case noTranslateHotKey
         case noTranslateHotKeyPreset
         case launchAtLogin
     }
 
-    static let currentConfigVersion = 5
+    static let currentConfigVersion = 6
     static let defaultEditingModel: EditingModelPreset = .gpt56Luna
-    static let defaultNoTranslateHotKeyPreset: HotKeyPreset = .shiftCommandSpace
+    static let defaultNoTranslateHotKey: HotKeyShortcut = .shiftCommandSpace
 
     var configVersion = Self.currentConfigVersion
     var apiKey = ""
@@ -93,9 +93,9 @@ struct AppConfiguration: Codable {
     var enableAIEditing = false
     var autoTranslateRussianToEnglish = false
     var preferredTerms: [String] = []
-    var hotKeyPreset: HotKeyPreset = .controlSpace
+    var hotKey: HotKeyShortcut = .controlSpace
     var enableNoTranslateHotKey = false
-    var noTranslateHotKeyPreset: HotKeyPreset = Self.defaultNoTranslateHotKeyPreset
+    var noTranslateHotKey: HotKeyShortcut = Self.defaultNoTranslateHotKey
     var launchAtLogin = false
 
     init() {}
@@ -111,14 +111,17 @@ struct AppConfiguration: Codable {
         editingModel = decodedConfigVersion < 3 ? decodedEditingModel.currentEquivalent : decodedEditingModel
         enableAIEditing = try container.decodeIfPresent(Bool.self, forKey: .enableAIEditing) ?? false
         autoTranslateRussianToEnglish = try container.decodeIfPresent(Bool.self, forKey: .autoTranslateRussianToEnglish) ?? false
-        hotKeyPreset = try container.decodeIfPresent(HotKeyPreset.self, forKey: .hotKeyPreset) ?? .controlSpace
+        hotKey = try container.decodeIfPresent(HotKeyShortcut.self, forKey: .hotKey)
+            ?? container.decodeIfPresent(LegacyHotKeyPreset.self, forKey: .hotKeyPreset)?.shortcut
+            ?? .controlSpace
         enableNoTranslateHotKey = try container.decodeIfPresent(Bool.self, forKey: .enableNoTranslateHotKey) ?? false
 
-        let decodedNoTranslatePreset = try container.decodeIfPresent(HotKeyPreset.self, forKey: .noTranslateHotKeyPreset)
-            ?? Self.defaultNoTranslateHotKeyPreset
-        noTranslateHotKeyPreset = decodedNoTranslatePreset == hotKeyPreset
-            ? Self.fallbackNoTranslateHotKeyPreset(avoiding: hotKeyPreset)
-            : decodedNoTranslatePreset
+        let decodedNoTranslateHotKey = try container.decodeIfPresent(HotKeyShortcut.self, forKey: .noTranslateHotKey)
+            ?? container.decodeIfPresent(LegacyHotKeyPreset.self, forKey: .noTranslateHotKeyPreset)?.shortcut
+            ?? Self.defaultNoTranslateHotKey
+        noTranslateHotKey = decodedNoTranslateHotKey == hotKey
+            ? Self.fallbackNoTranslateHotKey(avoiding: hotKey)
+            : decodedNoTranslateHotKey
 
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
 
@@ -138,14 +141,15 @@ struct AppConfiguration: Codable {
         try container.encode(enableAIEditing, forKey: .enableAIEditing)
         try container.encode(autoTranslateRussianToEnglish, forKey: .autoTranslateRussianToEnglish)
         try container.encode(preferredTerms, forKey: .preferredTerms)
-        try container.encode(hotKeyPreset, forKey: .hotKeyPreset)
+        try container.encode(hotKey, forKey: .hotKey)
         try container.encode(enableNoTranslateHotKey, forKey: .enableNoTranslateHotKey)
-        try container.encode(noTranslateHotKeyPreset, forKey: .noTranslateHotKeyPreset)
+        try container.encode(noTranslateHotKey, forKey: .noTranslateHotKey)
         try container.encode(launchAtLogin, forKey: .launchAtLogin)
     }
 
-    static func fallbackNoTranslateHotKeyPreset(avoiding preset: HotKeyPreset) -> HotKeyPreset {
-        HotKeyPreset.allCases.first { $0 != preset } ?? preset
+    static func fallbackNoTranslateHotKey(avoiding hotKey: HotKeyShortcut) -> HotKeyShortcut {
+        [.shiftCommandSpace, .optionCommandSpace, .controlOptionSpace]
+            .first { $0 != hotKey } ?? hotKey
     }
 
     private static func normalizedPreferredTerms(_ terms: [String]) -> [String] {
