@@ -124,7 +124,7 @@ final class AppViewModel: ObservableObject {
     func updateQuickToggles(enableAIEditing: Bool, autoTranslateRussianToEnglish: Bool) async {
         var next = configuration
         next.enableAIEditing = enableAIEditing
-        next.autoTranslateRussianToEnglish = enableAIEditing ? autoTranslateRussianToEnglish : false
+        next.autoTranslateRussianToEnglish = autoTranslateRussianToEnglish
         _ = await saveConfiguration(next)
     }
 
@@ -395,7 +395,7 @@ final class AppViewModel: ObservableObject {
             saveHistory()
         }
 
-        let finalText = await autoEditTranscriptIfNeeded(rawText, apiKey: apiKey)
+        let finalText = await postProcessTranscriptIfNeeded(rawText, apiKey: apiKey)
         workflowPhase = .transcribing
         transcript = finalText
         statusText = "Transcription complete"
@@ -480,41 +480,53 @@ final class AppViewModel: ObservableObject {
         configuration = next
     }
 
-    private func autoEditTranscriptIfNeeded(_ text: String, apiKey: String) async -> String {
+    private func postProcessTranscriptIfNeeded(_ text: String, apiKey: String) async -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
         let preferredTerms = configuration.preferredTerms
-
-        guard configuration.enableAIEditing else {
-            return trimmed
-        }
-        workflowPhase = .editing
-        statusText = "Editing transcript..."
+        let shouldEdit = configuration.enableAIEditing
         let shouldTranslateToEnglish = activeTranslationBehavior == .followSettings
             && configuration.autoTranslateRussianToEnglish
             && containsRussianText(trimmed)
+
+        guard shouldEdit || shouldTranslateToEnglish else {
+            return trimmed
+        }
+
+        workflowPhase = .editing
+        switch (shouldEdit, shouldTranslateToEnglish) {
+        case (true, true):
+            statusText = "Editing and translating transcript..."
+        case (true, false):
+            statusText = "Editing transcript..."
+        case (false, true):
+            statusText = "Translating transcript..."
+        case (false, false):
+            return trimmed
+        }
 
         let previousMessages = transcriptHistory
             .prefix(8)
             .map(\.text)
             .reversed()
 
-        appendLog("AI editing started: previousMessages=\(previousMessages.count), model=\(configuration.editingModel.rawValue), translateToEnglish=\(shouldTranslateToEnglish)")
+        appendLog("AI post-processing started: previousMessages=\(previousMessages.count), model=\(configuration.editingModel.rawValue), editTranscript=\(shouldEdit), translateToEnglish=\(shouldTranslateToEnglish)")
 
         do {
             let client = OpenAIEditingClient()
-            let editedText = try await client.rewriteLatestMessage(
+            let processedText = try await client.processLatestMessage(
                 latestMessage: trimmed,
                 previousMessages: Array(previousMessages),
                 preferredTerms: preferredTerms,
                 model: configuration.editingModel.rawValue,
+                enableEditing: shouldEdit,
                 translateToEnglish: shouldTranslateToEnglish,
                 apiKey: apiKey
             )
-            appendLog("AI editing complete: \(editedText.count) chars")
-            return editedText
+            appendLog("AI post-processing complete: \(processedText.count) chars")
+            return processedText
         } catch {
-            appendLog("AI editing failed, using raw transcript: \(error.localizedDescription)")
+            appendLog("AI post-processing failed, using raw transcript: \(error.localizedDescription)")
             return trimmed
         }
     }

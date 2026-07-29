@@ -34,18 +34,17 @@ struct SettingsView: View {
                                 .tag(preset)
                         }
                     }
-                    .disabled(!draftEnableAIEditing)
+                    .disabled(!draftEnableAIEditing && !draftAutoTranslateRussianToEnglish)
 
                     Toggle("Auto-edit transcript with AI", isOn: $draftEnableAIEditing)
 
                     Toggle("Auto-translate Russian to English", isOn: $draftAutoTranslateRussianToEnglish)
-                        .disabled(!draftEnableAIEditing)
 
                     Text("OpenAI speech-to-text uses \(OpenAITranscriptionClient.model) for completed recordings.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Post-processing model: used only after transcription, for cleanup, translation, and preferred terms.")
+                    Text("Post-processing model: used for enabled editing and translation. Translation works independently of auto-editing.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -70,7 +69,7 @@ struct SettingsView: View {
                         .background(Color(nsColor: .textBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                    Text("These terms are sent to \(OpenAITranscriptionClient.model) as keyword hints and passed into AI auto-editing as preferred spellings.")
+                    Text("These terms are sent to \(OpenAITranscriptionClient.model) as keyword hints and passed into enabled translation or auto-editing as preferred spellings.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 

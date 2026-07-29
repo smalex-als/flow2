@@ -9,13 +9,13 @@ enum OpenAIEditingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "The AI editing API returned an invalid response."
+            return "The AI post-processing API returned an invalid response."
         case .requestFailed(let message):
             return message
         case .emptyChoice:
-            return "The AI editing API returned an empty message."
+            return "The AI post-processing API returned an empty message."
         case .timedOut:
-            return "The AI editing request timed out."
+            return "The AI post-processing request timed out."
         }
     }
 }
@@ -57,7 +57,7 @@ final class OpenAIEditingClient {
         let choices: [Choice]
     }
 
-    func rewriteLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], model: String, translateToEnglish: Bool, apiKey: String) async throws -> String {
+    func processLatestMessage(latestMessage: String, previousMessages: [String], preferredTerms: [String], model: String, enableEditing: Bool, translateToEnglish: Bool, apiKey: String) async throws -> String {
         let trimmedLatestMessage = latestMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLatestMessage.isEmpty else {
             return trimmedLatestMessage
@@ -70,7 +70,8 @@ final class OpenAIEditingClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let systemPrompt: String
-        if translateToEnglish {
+        switch (enableEditing, translateToEnglish) {
+        case (true, true):
             systemPrompt = """
             You edit only the latest user message using the previous messages for context.
             Return only the rewritten latest message in English.
@@ -79,7 +80,7 @@ final class OpenAIEditingClient {
             The final answer must be English only. Do not output Russian or any Cyrillic characters.
             Do not add explanations, quotes, prefixes, labels, or extra lines.
             """
-        } else {
+        case (true, false):
             systemPrompt = """
             You edit only the latest user message using the previous messages for context.
             Return only the rewritten latest message.
@@ -88,15 +89,33 @@ final class OpenAIEditingClient {
             Treat the preferred terms list as authoritative. If the latest message seems to refer to one of those terms, prefer that spelling in the final answer.
             Do not add explanations, quotes, prefixes, labels, or extra lines.
             """
+        case (false, true):
+            systemPrompt = """
+            Translate only the latest user message from Russian into natural English, using the previous messages only to resolve context.
+            Preserve the meaning, tone, emphasis, names, numbers, and formatting of the latest message.
+            Do not correct, rewrite, summarize, or add information beyond changes required for an accurate natural translation.
+            Treat the preferred terms list as authoritative.
+            Return English only. Do not output Russian or any Cyrillic characters.
+            Do not add explanations, quotes, prefixes, labels, or extra lines.
+            """
+        case (false, false):
+            return trimmedLatestMessage
         }
 
-        let strictEnglishRetryPrompt = """
-        Rewrite only the latest message in natural English.
-        Return one plain sentence or paragraph in English only.
-        Treat the preferred terms list as authoritative.
-        Do not output Russian or any Cyrillic characters.
-        Do not add explanations, quotes, prefixes, labels, or extra lines.
-        """
+        let strictEnglishRetryPrompt = enableEditing
+            ? """
+              Rewrite only the latest message in natural English.
+              Return one plain sentence or paragraph in English only.
+              Treat the preferred terms list as authoritative.
+              Do not output Russian or any Cyrillic characters.
+              Do not add explanations, quotes, prefixes, labels, or extra lines.
+              """
+            : """
+              Translate only the latest message from Russian into natural English.
+              Preserve its meaning, tone, names, numbers, and formatting without rewriting or adding information.
+              Return English only. Do not output Russian or any Cyrillic characters.
+              Do not add explanations, quotes, prefixes, labels, or extra lines.
+              """
 
         let previousContext = previousMessages.enumerated().map { index, message in
             "\(index + 1). \(message)"

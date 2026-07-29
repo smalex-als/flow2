@@ -6,7 +6,7 @@
 
 - 🎙️ Hold a global hotkey to record, release to transcribe
 - ✨ Optional AI auto-editing with recent-message context
-- 🌍 Optional Russian-to-English cleanup when Cyrillic is detected
+- 🌍 Optional Russian-to-English translation when Cyrillic is detected
 - 📚 Preferred terms dictionary for names, products, and custom spellings
 - 📝 Native insertion for apps like Notes
 - 💻 Dedicated typing path for `Terminal` and `iTerm`
@@ -36,7 +36,8 @@
 - Default model: `gpt-5.6-luna`
 - Uses only the latest message plus a limited recent-history context
 - Returns only the corrected latest message
-- Can optionally force English output when the raw transcript contains Cyrillic
+- Translation can run independently of transcript auto-editing
+- When enabled, translation forces English output when the raw transcript contains Cyrillic
 - Accepts a preferred-terms list so the model gives priority to your spellings
 
 ### Preferred Terms Dictionary
@@ -50,7 +51,7 @@ iTerm2
 Flow2
 ```
 
-These terms are sent to `gpt-transcribe` as `keywords[]` hints and are also passed into the optional AI editing step as authoritative spellings.
+These terms are sent to `gpt-transcribe` as `keywords[]` hints and are also passed into enabled translation or auto-editing as authoritative spellings.
 
 ## Insertion Paths
 

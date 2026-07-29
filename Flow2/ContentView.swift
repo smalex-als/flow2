@@ -41,6 +41,7 @@ struct ContentView: View {
                 HStack(spacing: 8) {
                     statusChip(title: viewModel.configuration.hotKeyPreset.displayName, systemImage: "keyboard")
                     statusChip(title: viewModel.configuration.enableAIEditing ? "AI Edit On" : "AI Edit Off", systemImage: "sparkles")
+                    statusChip(title: viewModel.configuration.autoTranslateRussianToEnglish ? "Translate On" : "Translate Off", systemImage: "character.book.closed")
                     statusChip(title: "\(viewModel.transcriptHistory.count) Saved", systemImage: "text.quote")
                 }
             }
@@ -190,7 +191,7 @@ struct ContentView: View {
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
                     footerInfoCard(title: "Transcription", value: transcriptionModelLabel, systemImage: "waveform")
-                    footerInfoCard(title: "AI Editing", value: aiEditingModelLabel, systemImage: "sparkles")
+                    footerInfoCard(title: "AI Post-Processing", value: aiPostProcessingModelLabel, systemImage: "sparkles")
                     footerInfoCard(title: "Hotkey", value: viewModel.hotKeyStatus, systemImage: "keyboard")
                     footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
                     footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
@@ -268,8 +269,8 @@ struct ContentView: View {
             .clipShape(Capsule())
     }
 
-    private var aiEditingModelLabel: String {
-        guard viewModel.configuration.enableAIEditing else {
+    private var aiPostProcessingModelLabel: String {
+        guard viewModel.configuration.enableAIEditing || viewModel.configuration.autoTranslateRussianToEnglish else {
             return "Off"
         }
 

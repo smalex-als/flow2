@@ -76,7 +76,6 @@ private struct MenuBarContentView: View {
             Toggle("AI Auto-Edit", isOn: aiEditingBinding)
 
             Toggle("Translate RU -> EN", isOn: autoTranslateBinding)
-                .disabled(!viewModel.configuration.enableAIEditing)
 
             Divider()
 
@@ -119,7 +118,7 @@ private struct MenuBarContentView: View {
                 Task {
                     await viewModel.updateQuickToggles(
                         enableAIEditing: newValue,
-                        autoTranslateRussianToEnglish: newValue ? viewModel.configuration.autoTranslateRussianToEnglish : false
+                        autoTranslateRussianToEnglish: viewModel.configuration.autoTranslateRussianToEnglish
                     )
                 }
             }
