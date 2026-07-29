@@ -2,30 +2,44 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @State private var isShowingDiagnostics = false
 
+    /// The window keeps a single scrollable region between a pinned header and a pinned control bar,
+    /// so the primary action stays reachable and no scroll view is ever nested inside another.
     var body: some View {
-        GeometryReader { geometry in
+        VStack(spacing: 0) {
+            header
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 18)
+
+            Divider()
+
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    transcriptsPanel
-                        .frame(height: max(240, geometry.size.height * 0.55))
-                    footer
+                VStack(alignment: .leading, spacing: 24) {
+                    transcriptsSection
+                    diagnosticsSection
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color(nsColor: .windowBackgroundColor),
-                        Color(nsColor: .controlBackgroundColor).opacity(0.65)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
+
+            Divider()
+
+            controlBar
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
         }
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .controlBackgroundColor).opacity(0.65)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .frame(minWidth: 640, minHeight: 480)
     }
 
@@ -54,7 +68,7 @@ struct ContentView: View {
         }
     }
 
-    private var transcriptsPanel: some View {
+    private var transcriptsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Transcripts")
@@ -69,89 +83,84 @@ struct ContentView: View {
                     .clipShape(Capsule())
             }
 
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(nsColor: .textBackgroundColor))
-
-                if viewModel.transcriptHistory.isEmpty {
-                    Text("Your transcripts will appear here after you stop recording.")
-                        .foregroundStyle(.secondary)
-                        .padding(18)
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(Array(viewModel.transcriptHistory.enumerated()), id: \.element.id) { index, item in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    HStack(alignment: .top) {
-                                        Label(historyLabel(for: item, index: index),
-                                              systemImage: historyIcon(for: item, index: index))
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(historyColor(for: item, index: index))
-
-                                        Spacer()
-
-                                        if item.isFailedRecording {
-                                            Button("Retry") {
-                                                Task {
-                                                    await viewModel.retryHistoryItem(item)
-                                                }
-                                            }
-                                            .buttonStyle(.borderless)
-                                            .disabled(viewModel.isBusy || viewModel.isRecording)
-                                        } else {
-                                            Button("Copy") {
-                                                viewModel.copyHistoryItem(item)
-                                            }
-                                            .buttonStyle(.borderless)
-                                        }
-
-                                        Button("Delete") {
-                                            viewModel.deleteHistoryItem(item)
-                                        }
-                                        .buttonStyle(.borderless)
-                                        .foregroundStyle(.red)
-                                    }
-
-                                    if item.isFailedRecording {
-                                        if let fileName = item.failedRecordingFileName {
-                                            Text(fileName)
-                                                .font(.system(size: 15, weight: .semibold))
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-
-                                        Text(item.failureReason ?? "Recognition failed.")
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(.secondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .lineSpacing(3)
-                                    } else {
-                                        Text(item.text)
-                                            .font(.system(size: 18))
-                                            .textSelection(.enabled)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .lineSpacing(3)
-                                    }
-                                }
-                                .padding(16)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(18)
-                    }
+            if viewModel.transcriptHistory.isEmpty {
+                Text("Your transcripts will appear here after you stop recording.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            } else {
+                ForEach(Array(viewModel.transcriptHistory.enumerated()), id: \.element.id) { index, item in
+                    transcriptCard(for: item, index: index)
                 }
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
             }
         }
         .frame(maxWidth: .infinity)
-        .layoutPriority(2)
     }
 
-    private var footer: some View {
+    private func transcriptCard(for item: TranscriptHistoryItem, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Label(historyLabel(for: item, index: index),
+                      systemImage: historyIcon(for: item, index: index))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(historyColor(for: item, index: index))
+
+                Spacer()
+
+                if item.isFailedRecording {
+                    Button("Retry") {
+                        Task {
+                            await viewModel.retryHistoryItem(item)
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(viewModel.isBusy || viewModel.isRecording)
+                } else {
+                    Button("Copy") {
+                        viewModel.copyHistoryItem(item)
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                Button("Delete") {
+                    viewModel.deleteHistoryItem(item)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+            }
+
+            if item.isFailedRecording {
+                if let fileName = item.failedRecordingFileName {
+                    Text(fileName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Text(item.failureReason ?? "Recognition failed.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineSpacing(3)
+            } else {
+                Text(item.text)
+                    .font(.system(size: 18))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineSpacing(3)
+            }
+        }
+        .padding(16)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        }
+    }
+
+    private var controlBar: some View {
         VStack(alignment: .leading, spacing: 12) {
             if viewModel.isShowingMissingKeyAlert {
                 HStack(spacing: 10) {
@@ -166,29 +175,37 @@ struct ContentView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    Button {
-                        Task {
-                            await viewModel.toggleRecording()
-                        }
-                    } label: {
-                        Label(viewModel.isRecording ? "Stop Recording" : "Start Recording",
-                              systemImage: viewModel.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+            HStack(spacing: 12) {
+                Button {
+                    Task {
+                        await viewModel.toggleRecording()
                     }
-                    .keyboardShortcut(.space, modifiers: [])
-                    .controlSize(.large)
-                    .disabled(viewModel.isBusy)
+                } label: {
+                    Label(viewModel.isRecording ? "Stop Recording" : "Start Recording",
+                          systemImage: viewModel.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                }
+                .keyboardShortcut(.space, modifiers: [])
+                .controlSize(.large)
+                .disabled(viewModel.isBusy)
 
-                    if viewModel.isBusy {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    Text(viewModel.statusText)
-                        .foregroundStyle(.secondary)
+                if viewModel.isBusy {
+                    ProgressView()
+                        .controlSize(.small)
                 }
 
+                Text(viewModel.statusText)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var diagnosticsSection: some View {
+        DisclosureGroup(isExpanded: $isShowingDiagnostics) {
+            VStack(alignment: .leading, spacing: 14) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
                     footerInfoCard(title: "Transcription", value: transcriptionModelLabel, systemImage: "waveform")
                     footerInfoCard(title: "AI Post-Processing", value: aiPostProcessingModelLabel, systemImage: "sparkles")
@@ -196,67 +213,71 @@ struct ContentView: View {
                     footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
                     footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
                 }
-            }
 
-            HStack(spacing: 10) {
-                Button("Request Accessibility Access") {
-                    viewModel.requestAccessibilityAccess()
-                }
+                HStack(spacing: 10) {
+                    Button("Request Accessibility Access") {
+                        viewModel.requestAccessibilityAccess()
+                    }
 
-                Button("Refresh Access Status") {
-                    viewModel.refreshAccessibilityStatus()
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Current app bundle")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-
-                Text(viewModel.appBundlePath)
-                    .font(.system(size: 11, design: .monospaced))
-                    .textSelection(.enabled)
-                    .foregroundStyle(.secondary)
-
-                HStack {
-                    Spacer()
-
-                    Button("Reveal App in Finder") {
-                        viewModel.revealAppInFinder()
+                    Button("Refresh Access Status") {
+                        viewModel.refreshAccessibilityStatus()
                     }
                 }
-            }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Debug Log")
-                        .font(.subheadline.weight(.medium))
-                    Spacer()
-                    Button("Copy Debug Log") {
-                        viewModel.copyDebugLog()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Current app bundle")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    Text(viewModel.appBundlePath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Spacer()
+
+                        Button("Reveal App in Finder") {
+                            viewModel.revealAppInFinder()
+                        }
                     }
-                    .disabled(viewModel.debugLog.isEmpty)
                 }
 
-                ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Debug Log")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                        Button("Copy Debug Log") {
+                            viewModel.copyDebugLog()
+                        }
+                        .disabled(viewModel.debugLog.isEmpty)
+                    }
+
+                    // The log is capped at 20 lines upstream, so it can render inline instead of
+                    // opening a second scroll view inside the page.
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(viewModel.debugLog.enumerated()), id: \.offset) { _, line in
                             Text(line)
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-                .frame(minHeight: 120, maxHeight: 120)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
+            .padding(.top, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Diagnostics")
+                .font(.title3.weight(.semibold))
         }
-        .frame(maxWidth: .infinity)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func statusChip(title: String, systemImage: String) -> some View {
