@@ -35,6 +35,9 @@ struct Flow2App: App {
             MenuBarContentView()
                 .environmentObject(viewModel)
         }
+        // Stated rather than left to .automatic: the content is a list of commands, which is what a
+        // menu is for, and a menu discards any layout or styling wrapped around it.
+        .menuBarExtraStyle(.menu)
     }
 }
 
@@ -56,50 +59,56 @@ private struct MenuBarContentView: View {
     @EnvironmentObject private var viewModel: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(statusLine)
-                .font(.headline)
+        Text(statusLine)
 
-            if viewModel.isRecording {
-                Button("Stop Recording") {
+        // With no window open there is no other place this can surface, and a shortcut the system
+        // refused otherwise just looks like a broken key.
+        if !viewModel.failedHotKeyModes.isEmpty {
+            Text(viewModel.hotKeyStatus)
+        }
+
+        Divider()
+
+        if viewModel.isRecording {
+            Button("Stop Recording") {
+                Task {
+                    await viewModel.toggleRecording(mode: .dictate)
+                }
+            }
+        } else {
+            ForEach(DictationMode.allCases) { mode in
+                Button("\(mode.title)  \(viewModel.configuration.hotKey(for: mode).displayName)") {
                     Task {
-                        await viewModel.toggleRecording(mode: .dictate)
+                        await viewModel.toggleRecording(mode: mode)
                     }
                 }
-            } else {
-                ForEach(DictationMode.allCases) { mode in
-                    Button("\(mode.title)  \(viewModel.configuration.hotKey(for: mode).displayName)") {
-                        Task {
-                            await viewModel.toggleRecording(mode: mode)
-                        }
-                    }
-                    .disabled(viewModel.isBusy)
-                }
-            }
-
-            Divider()
-
-            Button("Show Flow2 Window") {
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
-            }
-
-            Button("About Flow2") {
-                openWindow(id: "about")
-                NSApp.activate(ignoringOtherApps: true)
-            }
-
-            SettingsLink {
-                Text("Settings")
-            }
-
-            Button("Quit Flow2") {
-                NSApp.terminate(nil)
+                .disabled(viewModel.isBusy)
             }
         }
-        .padding(14)
-        .frame(width: 340)
-        .background(Color(nsColor: .windowBackgroundColor))
+
+        Divider()
+
+        Button("Show Flow2 Window") {
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        Button("About Flow2") {
+            openWindow(id: "about")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        SettingsLink {
+            Text("Settings")
+        }
+
+        Divider()
+
+        // Flow2 spends most of its life without a menu bar to carry the standard binding.
+        Button("Quit Flow2") {
+            NSApp.terminate(nil)
+        }
+        .keyboardShortcut("q")
     }
 
     private var statusLine: String {

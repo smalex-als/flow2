@@ -102,11 +102,12 @@ app, which is what keeps the menu bar — and with it `⌘V` in the API key fiel
 
 The menu bar extra supports:
 
+- Current status, and a warning when the system refused one of the shortcuts
 - Start recording in either mode, with each mode's shortcut shown next to it
 - Stop the recording in flight
 - Show the main Flow2 window
 - Open Settings
-- Quit the app
+- Quit the app (`⌘Q`, which the menu carries itself since Flow2 usually has no menu bar)
 
 ## Settings
 
