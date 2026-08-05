@@ -72,3 +72,10 @@
 - Never commit real OpenAI API keys.
 - Runtime config and history are stored under `~/Library/Application Support/Flow2/`.
 - `Accessibility`, `Microphone`, and sometimes `Input Monitoring` permissions are required for full functionality.
+- Do not remove `DEVELOPMENT_TEAM` or `CODE_SIGN_IDENTITY` from the project-level build settings.
+  They look like a needless tie to one developer's machine, but they are what keeps those
+  permissions granted. macOS stores each grant against the app's designated requirement; with the
+  ad-hoc signature you get by default, that requirement is a bare `cdhash`, so every rebuild looks
+  like a new app and macOS asks again. Signing with a certificate makes the requirement name the
+  certificate instead of the binary, and the grants survive rebuilds. Verify with
+  `codesign -d -r- <app>` — the requirement must not mention `cdhash`.
