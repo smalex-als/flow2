@@ -70,6 +70,18 @@ final class TextInsertionService {
     /// How long the transcript stays on the pasteboard after Cmd+V is posted.
     private static let pasteSettleDelay = Duration.milliseconds(250)
 
+    /// `keyboardSetUnicodeString` carries up to 20 UTF-16 units per event, so the terminal path
+    /// sends the transcript in chunks instead of one event per character.
+    nonisolated static let typingChunkLength = 20
+
+    /// Paced so a terminal reading the events keeps up, and stated per chunk rather than per
+    /// character: the same delay used to be paid ~20 times as often for the same text.
+    private static let typingChunkDelay = Duration.milliseconds(4)
+
+    /// Modifier and key events need to arrive as distinct steps for the target app to see a
+    /// chord rather than a burst.
+    private static let pasteKeyEventDelay = Duration.milliseconds(12)
+
     func isAccessibilityTrusted() -> Bool {
         AXIsProcessTrusted()
     }
@@ -284,7 +296,7 @@ final class TextInsertionService {
         // Give the pasteboard server time to propagate before the target app reads it.
         try? await Task.sleep(for: .milliseconds(40))
 
-        try postPasteShortcut(commandDown: commandDown, vDown: vDown, vUp: vUp, commandUp: commandUp, tap: .cghidEventTap)
+        await postPasteShortcut(commandDown: commandDown, vDown: vDown, vUp: vUp, commandUp: commandUp, tap: .cghidEventTap)
 
         // The target app reads the pasteboard while handling the synthetic Cmd+V, so the previous
         // contents can only go back once that read has had a chance to happen.
@@ -305,22 +317,49 @@ final class TextInsertionService {
             throw TextInsertionError.eventSourceUnavailable
         }
 
-        for scalar in text.unicodeScalars {
-            var value = UInt16(scalar.value)
+        let chunks = Self.typingChunks(of: text)
+        for chunk in chunks {
+            var units = chunk
             guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
                   let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
                 throw TextInsertionError.keyEventUnavailable
             }
 
-            keyDown.keyboardSetUnicodeString(stringLength: 1, unicodeString: &value)
-            keyUp.keyboardSetUnicodeString(stringLength: 1, unicodeString: &value)
+            keyDown.keyboardSetUnicodeString(stringLength: units.count, unicodeString: &units)
+            keyUp.keyboardSetUnicodeString(stringLength: units.count, unicodeString: &units)
             keyDown.post(tap: .cghidEventTap)
             keyUp.post(tap: .cghidEventTap)
-            usleep(2500)
+            try? await Task.sleep(for: Self.typingChunkDelay, tolerance: .milliseconds(1))
         }
 
         try? await Task.sleep(for: .milliseconds(80))
-        return "Terminal typing path executed: app=\(frontmostAppName), unicode keystrokes posted, textLength=\(text.count)"
+        return "Terminal typing path executed: app=\(frontmostAppName), unicode keystrokes posted, textLength=\(text.count), events=\(chunks.count)"
+    }
+
+    /// Splits the transcript into the UTF-16 runs a single key event can carry.
+    ///
+    /// UTF-16 is what `keyboardSetUnicodeString` takes, and it is also the only unit that can
+    /// represent the whole transcript: a Unicode scalar above U+FFFF — an emoji, a CJK extension —
+    /// does not fit the `UniChar` the API expects, and forcing one in traps. A surrogate pair is
+    /// therefore kept whole rather than split across two events, which would deliver two
+    /// meaningless halves instead of the character.
+    nonisolated static func typingChunks(of text: String, maximumLength: Int = typingChunkLength) -> [[UInt16]] {
+        let units = Array(text.utf16)
+        var chunks: [[UInt16]] = []
+        var index = 0
+
+        while index < units.count {
+            var end = min(index + maximumLength, units.count)
+            let isHighSurrogate = (0xD800 ... 0xDBFF).contains(units[end - 1])
+            if end < units.count, isHighSurrogate, end - 1 > index {
+                end -= 1
+            }
+
+            chunks.append(Array(units[index ..< end]))
+            index = end
+        }
+
+        return chunks
     }
 
     /// Restores the snapshot only while Flow2 still owns the pasteboard: a bumped change count means
@@ -338,14 +377,21 @@ final class TextInsertionService {
         return "previous pasteboard contents restored"
     }
 
-    private func postPasteShortcut(commandDown: CGEvent, vDown: CGEvent, vUp: CGEvent, commandUp: CGEvent, tap: CGEventTapLocation) throws {
+    /// Cancellation cuts the waits short but never abandons the remaining events: stopping midway
+    /// would leave Command posted as down with nothing to release it, and the modifier would stick
+    /// for every keystroke the user typed afterwards.
+    private func postPasteShortcut(commandDown: CGEvent, vDown: CGEvent, vUp: CGEvent, commandUp: CGEvent, tap: CGEventTapLocation) async {
         commandDown.post(tap: tap)
-        usleep(12000)
+        await pauseBetweenPasteKeyEvents()
         vDown.post(tap: tap)
-        usleep(12000)
+        await pauseBetweenPasteKeyEvents()
         vUp.post(tap: tap)
-        usleep(12000)
+        await pauseBetweenPasteKeyEvents()
         commandUp.post(tap: tap)
+    }
+
+    private func pauseBetweenPasteKeyEvents() async {
+        try? await Task.sleep(for: Self.pasteKeyEventDelay, tolerance: .milliseconds(1))
     }
 
     /// `activate` is asynchronous, so the activation is polled instead of assumed after a fixed wait.
