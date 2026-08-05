@@ -70,7 +70,11 @@
 ## Security & Configuration Tips
 
 - Never commit real OpenAI API keys.
-- Runtime config and history are stored under `~/Library/Application Support/Flow2/`.
+- Runtime config and history are stored under `~/Library/Application Support/Flow2/`. The API key is
+  not: it lives in the login keychain, and `ConfigurationStore` migrates the plaintext copy that
+  versions up to 8 left in `config.json`. Nothing may encode `apiKey` back into that file.
+- Tests must never touch the real keychain, for the same reason they must not touch the real
+  pasteboard: inject a `SecretStore` double instead.
 - `Accessibility`, `Microphone`, and sometimes `Input Monitoring` permissions are required for full functionality.
 - Do not remove `DEVELOPMENT_TEAM` or `CODE_SIGN_IDENTITY` from the project-level build settings.
   They look like a needless tie to one developer's machine, but they are what keeps those

@@ -181,6 +181,16 @@ make run CONFIGURATION=Release
 
 - Config: `~/Library/Application Support/Flow2/config.json`
 - History: `~/Library/Application Support/Flow2/history.json`
+- OpenAI API key: the login keychain, as a generic password under `com.smalex.Flow2`
+
+Versions up to 8 wrote the API key into `config.json` in plain text. It is moved to the keychain on
+first launch and the file is rewritten without it — the key only counts as migrated once the
+keychain holds it, so a keychain that refuses leaves the file alone rather than losing the key.
+
+Keychain access survives rebuilds for the same reason the Accessibility grant does: the designated
+requirement names the signing certificate, not a `cdhash`. The entry is readable by other processes
+running as you while the keychain is unlocked; what it buys is that the key is no longer sitting in
+a plain file that any tool, sync client, or backup can read.
 
 ## Notes
 

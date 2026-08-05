@@ -143,7 +143,6 @@ final class AppConfigurationTests: XCTestCase {
 
     func testEncodingThenDecodingPreservesEverything() throws {
         var original = AppConfiguration()
-        original.apiKey = "sk-test"
         original.translationModel = .gpt56Sol
         original.translationSourceLanguage = .korean
         original.translationTargetLanguage = .hindi
@@ -164,6 +163,22 @@ final class AppConfigurationTests: XCTestCase {
         let restored = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(original))
 
         XCTAssertNil(restored.translationSourceLanguage)
+    }
+
+    /// The key belongs to the keychain now, and an encoder that still emits it would quietly put a
+    /// plaintext copy back on disk every time a setting changed.
+    func testTheAPIKeyIsNeverEncoded() throws {
+        var configuration = AppConfiguration()
+        configuration.apiKey = "sk-secret"
+
+        let encoded = String(decoding: try JSONEncoder().encode(configuration), as: UTF8.self)
+
+        XCTAssertFalse(encoded.contains("sk-secret"))
+        XCTAssertFalse(encoded.contains("apiKey"))
+    }
+
+    func testAStoredPlaintextKeyIsNotDecodedBackIntoTheConfiguration() throws {
+        XCTAssertEqual(try decode(#"{ "configVersion": 8, "apiKey": "sk-old" }"#).apiKey, "")
     }
 
     func testDecodingAlwaysReportsTheCurrentVersion() throws {

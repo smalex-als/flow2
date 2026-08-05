@@ -116,7 +116,6 @@ struct AppConfiguration: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case configVersion
-        case apiKey
         case translationModel
         case translationSourceLanguage
         case translationTargetLanguage
@@ -126,6 +125,8 @@ struct AppConfiguration: Codable, Equatable {
         case launchAtLogin
 
         // Read-only, for configurations written before dictation became two modes.
+        // `apiKey` is absent on purpose: it lives in the keychain, and `ConfigurationStore` is what
+        // migrates the plaintext copy older versions left in this file.
         case editingModel
         case autoTranslateRussianToEnglish
         case pronunciationDictionary
@@ -135,12 +136,14 @@ struct AppConfiguration: Codable, Equatable {
         case noTranslateHotKeyPreset
     }
 
-    static let currentConfigVersion = 8
+    static let currentConfigVersion = 9
     static let defaultTranslationModel: TranslationModelPreset = .gpt56Luna
     static let defaultTranslateHotKey: HotKeyShortcut = .controlSpace
     static let defaultDictateHotKey: HotKeyShortcut = .shiftCommandSpace
 
     var configVersion = Self.currentConfigVersion
+    /// Held in memory for the request that needs it, but never written to this file — it is stored
+    /// in the keychain and put here by `ConfigurationStore`.
     var apiKey = ""
     var translationModel = Self.defaultTranslationModel
     /// `nil` means any language: the model detects it and leaves text already in the target alone.
@@ -158,7 +161,6 @@ struct AppConfiguration: Codable, Equatable {
 
         let decodedConfigVersion = try container.decodeIfPresent(Int.self, forKey: .configVersion) ?? 1
         configVersion = Self.currentConfigVersion
-        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
 
         let decodedModel = try container.decodeIfPresent(TranslationModelPreset.self, forKey: .translationModel)
@@ -211,7 +213,6 @@ struct AppConfiguration: Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(configVersion, forKey: .configVersion)
-        try container.encode(apiKey, forKey: .apiKey)
         try container.encode(translationModel, forKey: .translationModel)
         try container.encodeIfPresent(translationSourceLanguage, forKey: .translationSourceLanguage)
         try container.encode(translationTargetLanguage, forKey: .translationTargetLanguage)
@@ -258,18 +259,63 @@ struct AppConfiguration: Codable, Equatable {
 }
 
 final class ConfigurationStore {
-    private let fileURL = AppStoragePaths.baseDirectory.appendingPathComponent("config.json")
+    /// Every version up to 8 wrote the key straight into `config.json`. Decoded on its own so
+    /// `AppConfiguration` does not have to carry a field it no longer owns.
+    private struct PlaintextKeyDocument: Decodable {
+        let apiKey: String?
+    }
+
+    private let fileURL: URL
+    private let secretStore: SecretStore
+
+    init(fileURL: URL = AppStoragePaths.baseDirectory.appendingPathComponent("config.json"),
+         secretStore: SecretStore = KeychainSecretStore()) {
+        self.fileURL = fileURL
+        self.secretStore = secretStore
+    }
 
     func load() throws -> AppConfiguration {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return AppConfiguration()
+            var configuration = AppConfiguration()
+            configuration.apiKey = try secretStore.load() ?? ""
+            return configuration
         }
 
         let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode(AppConfiguration.self, from: data)
+        var configuration = try JSONDecoder().decode(AppConfiguration.self, from: data)
+
+        let plaintextKey = (try? JSONDecoder().decode(PlaintextKeyDocument.self, from: data))?
+            .apiKey?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard !plaintextKey.isEmpty else {
+            configuration.apiKey = try secretStore.load() ?? ""
+            return configuration
+        }
+
+        // The copy on disk is the whole problem, so the key counts as migrated only once the
+        // keychain holds it and this file has been rewritten without it. Saving does both, in that
+        // order, and throws rather than leaving the key in neither place.
+        configuration.apiKey = plaintextKey
+        try save(configuration)
+        return configuration
     }
 
     func save(_ configuration: AppConfiguration) throws {
+        let apiKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Read before write: a keychain that cannot be read must abort the save, not be treated as
+        // empty. Taking "could not ask" for "nothing stored" would delete the key on the next
+        // settings change the user made.
+        let storedKey = try secretStore.load()
+        if apiKey.isEmpty {
+            if storedKey != nil {
+                try secretStore.delete()
+            }
+        } else if storedKey != apiKey {
+            try secretStore.save(apiKey)
+        }
+
         let data = try JSONEncoder.pretty.encode(configuration)
         try data.write(to: fileURL, options: .atomic)
     }
