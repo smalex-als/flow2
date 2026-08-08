@@ -2,10 +2,9 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: AppViewModel
-    @State private var isShowingDiagnostics = false
 
-    /// The window keeps a single scrollable region between a pinned header and a pinned control bar,
-    /// so the primary action stays reachable and no scroll view is ever nested inside another.
+    /// Everything that acts is pinned at the top, and the one scrolling region below it only shows
+    /// what the app has produced. Nothing the user can press moves as the transcript list grows.
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -17,19 +16,12 @@ struct ContentView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    statisticsSection
+                    summarySection
                     transcriptsSection
-                    diagnosticsSection
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-
-            Divider()
-
-            controlBar
-                .padding(.horizontal, 24)
-                .padding(.vertical, 14)
         }
         .background(
             LinearGradient(
@@ -45,79 +37,227 @@ struct ContentView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Flow2")
-                    .font(.system(size: 32, weight: .semibold))
-                Text("Push-to-talk dictation for macOS. Hold one shortcut to dictate, the other to come back in \(viewModel.configuration.translationTargetLanguage.displayName).")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Flow2")
+                        .font(.system(size: 30, weight: .semibold))
+                    Text("Push-to-talk dictation for macOS. Hold one shortcut to dictate, the other to come back in \(viewModel.configuration.translationTargetLanguage.displayName).")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-                HStack(spacing: 8) {
-                    ForEach(DictationMode.allCases) { mode in
-                        modeChip(for: mode)
-                    }
+                Spacer(minLength: 16)
+
+                SettingsLink {
+                    Label("Settings", systemImage: "slider.horizontal.3")
                 }
             }
 
-            Spacer()
-
-            SettingsLink {
-                Label("Settings", systemImage: "slider.horizontal.3")
-            }
+            actionBar
         }
     }
 
-    /// Three numbers, and only while there is something to count: an empty row of zeros on a fresh
-    /// install says nothing and takes the space the transcripts need.
-    @ViewBuilder
-    private var statisticsSection: some View {
-        if viewModel.statistics.dictations > 0 {
-            let statistics = viewModel.statistics
-
+    /// The buttons carry their own shortcut, so the separate row of chips that used to state it is
+    /// gone: one control per mode, saying what it does and which key does it without being asked.
+    private var actionBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                statisticCard(title: "Words dictated",
-                              value: statistics.totalWords.formatted(),
-                              detail: "\(statistics.dictations.formatted()) dictations",
-                              systemImage: "text.word.spacing")
+                if viewModel.isRecording {
+                    Button(role: .destructive) {
+                        Task {
+                            await viewModel.toggleRecording(mode: .dictate)
+                        }
+                    } label: {
+                        Label("Stop Recording", systemImage: "stop.circle.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.space, modifiers: [])
+                    .controlSize(.large)
+                } else {
+                    // One button per mode: the mode has to be chosen before speaking, not after.
+                    ForEach(DictationMode.allCases) { mode in
+                        modeButton(for: mode)
+                    }
+                }
 
-                statisticCard(title: "Per day",
-                              value: statistics.wordsPerDay.formatted(),
-                              detail: "last \(DictationStatistics.recentDays) days",
-                              systemImage: "calendar")
+                if viewModel.isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
 
-                statisticCard(title: "Speaking rate",
-                              value: "\(statistics.wordsPerMinute.formatted()) wpm",
-                              detail: "recordings over \(Int(DictationStatistics.minimumSecondsForRate))s",
-                              systemImage: "speedometer")
+                Text(viewModel.statusText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
+
+            // A shortcut the system refused otherwise just looks like a broken key.
+            if !viewModel.failedHotKeyModes.isEmpty {
+                noticeRow(viewModel.hotKeyStatus, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+            }
+
+            if viewModel.isShowingMissingKeyAlert {
+                HStack(spacing: 8) {
+                    noticeRow("Add your OpenAI API key in Settings before sending audio to OpenAI.",
+                              systemImage: "exclamationmark.triangle.fill",
+                              tint: .yellow)
+
+                    SettingsLink {
+                        Text("Open Settings")
+                    }
+                }
+            }
         }
     }
 
-    private func statisticCard(title: String, value: String, detail: String, systemImage: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private func modeButton(for mode: DictationMode) -> some View {
+        let failed = viewModel.failedHotKeyModes.contains(mode)
+        let shortcut = viewModel.configuration.hotKey(for: mode).displayName
 
-            Text(value)
-                .font(.system(size: 26, weight: .semibold, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+        return Button {
+            Task {
+                await viewModel.toggleRecording(mode: mode)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: failed ? "exclamationmark.triangle.fill" : mode.systemImage)
+                    .foregroundStyle(failed ? Color.orange : Color.accentColor)
 
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                Text(mode.title)
+
+                Text(shortcut)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding(14)
+        .keyboardShortcut(mode == .dictate ? KeyboardShortcut(.space, modifiers: []) : nil)
+        .controlSize(.large)
+        .disabled(viewModel.isBusy)
+        .help(failed ? viewModel.hotKeyStatus : "Hold \(shortcut) anywhere, or click to record \(mode.shortDescription)")
+    }
+
+    private func noticeRow(_ text: String, systemImage: String, tint: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The standing facts: what the pipeline is, and what it has produced. One strip rather than a
+    /// row of cards — a card gives a figure the weight of a headline, and these are things you
+    /// glance at on the way to the transcripts, not the content of the window.
+    private var summarySection: some View {
+        ViewThatFits(in: .horizontal) {
+            summaryRow(showsEveryQualifier: true)
+            summaryRow(showsEveryQualifier: false)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .textBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay {
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
         }
+    }
+
+    /// One row of cells, each stacking its value over what qualifies it. Stacked rather than laid
+    /// side by side because a cell is then only as wide as its longest line, which is what leaves
+    /// room for type big enough to read at a glance — the point of the row in the first place.
+    private struct SummaryItem {
+        let systemImage: String
+        let value: String
+        let qualifier: String
+        /// Whether the qualifier survives a window too narrow for the full row. The translation
+        /// model does: which model rewrote the words is not a footnote about them.
+        let isQualifierEssential: Bool
+        let help: String
+    }
+
+    private var pipelineItems: [SummaryItem] {
+        [
+            SummaryItem(systemImage: "waveform",
+                        value: OpenAITranscriptionClient.model,
+                        qualifier: "both modes",
+                        isQualifierEssential: false,
+                        help: "Speech to text. Runs on every recording, in both modes."),
+            SummaryItem(systemImage: "globe",
+                        value: translationLanguagePair,
+                        qualifier: viewModel.configuration.translationModel.rawValue,
+                        isQualifierEssential: true,
+                        help: "Runs only when you hold the Dictate & Translate shortcut.")
+        ]
+    }
+
+    /// Empty until something has been dictated: a row of zeros on a fresh install says nothing.
+    private var statisticItems: [SummaryItem] {
+        let statistics = viewModel.statistics
+        guard statistics.dictations > 0 else { return [] }
+
+        let shortest = Int(DictationStatistics.minimumSecondsForRate)
+
+        return [
+            SummaryItem(systemImage: "text.word.spacing",
+                        value: "\(statistics.totalWords.formatted()) words",
+                        qualifier: "\(statistics.dictations.formatted()) dictations",
+                        isQualifierEssential: false,
+                        help: "Words dictated since Flow2 started counting."),
+            SummaryItem(systemImage: "calendar",
+                        value: "\(statistics.wordsPerDay.formatted()) / day",
+                        qualifier: "last \(DictationStatistics.recentDays) days",
+                        isQualifierEssential: false,
+                        help: "Average over the last \(DictationStatistics.recentDays) days, or since your first dictation if that was more recent."),
+            SummaryItem(systemImage: "speedometer",
+                        value: "\(statistics.wordsPerMinute.formatted()) wpm",
+                        qualifier: "over \(shortest)s",
+                        isQualifierEssential: false,
+                        help: "Measured on recordings longer than \(shortest) seconds, where the pause at each end is not most of the recording.")
+        ]
+    }
+
+    private func summaryRow(showsEveryQualifier: Bool) -> some View {
+        let items = pipelineItems + statisticItems
+
+        return HStack(spacing: 16) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                if index > 0 {
+                    Divider().frame(height: 36)
+                }
+
+                summaryItem(item, showsQualifier: showsEveryQualifier || item.isQualifierEssential)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func summaryItem(_ item: SummaryItem, showsQualifier: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: item.systemImage)
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.value)
+                    .font(.system(size: 19, weight: .semibold))
+
+                if showsQualifier {
+                    Text(item.qualifier)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .lineLimit(1)
+        .help(item.help)
     }
 
     private var transcriptsSection: some View {
@@ -212,186 +352,10 @@ struct ContentView: View {
         }
     }
 
-    private var controlBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if viewModel.isShowingMissingKeyAlert {
-                HStack(spacing: 10) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.yellow)
-                    Text("Add your OpenAI API key in Settings before sending audio to OpenAI.")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    SettingsLink {
-                        Text("Open Settings")
-                    }
-                }
-            }
-
-            HStack(spacing: 12) {
-                if viewModel.isRecording {
-                    Button {
-                        Task {
-                            await viewModel.toggleRecording(mode: .dictate)
-                        }
-                    } label: {
-                        Label("Stop Recording", systemImage: "stop.circle.fill")
-                    }
-                    .keyboardShortcut(.space, modifiers: [])
-                    .controlSize(.large)
-                } else {
-                    // One button per mode: the mode has to be chosen before speaking, not after.
-                    ForEach(DictationMode.allCases) { mode in
-                        Button {
-                            Task {
-                                await viewModel.toggleRecording(mode: mode)
-                            }
-                        } label: {
-                            Label(mode.title, systemImage: mode.systemImage)
-                        }
-                        .keyboardShortcut(mode == .dictate ? KeyboardShortcut(.space, modifiers: []) : nil)
-                        .controlSize(.large)
-                        .disabled(viewModel.isBusy)
-                    }
-                }
-
-                if viewModel.isBusy {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                Text(viewModel.statusText)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-
-                Spacer(minLength: 0)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var diagnosticsSection: some View {
-        DisclosureGroup(isExpanded: $isShowingDiagnostics) {
-            VStack(alignment: .leading, spacing: 14) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
-                    footerInfoCard(title: "Transcription", value: transcriptionModelLabel, systemImage: "waveform")
-                    footerInfoCard(title: "Translation", value: translationSummary, systemImage: "globe")
-                    footerInfoCard(title: "Insertion", value: viewModel.insertionStatus, systemImage: "arrow.down.doc")
-                    footerInfoCard(title: "Accessibility", value: viewModel.accessibilityStatus, systemImage: "figure.wave")
-                }
-
-                HStack(spacing: 10) {
-                    Button("Request Accessibility Access") {
-                        viewModel.requestAccessibilityAccess()
-                    }
-
-                    Button("Refresh Access Status") {
-                        viewModel.refreshAccessibilityStatus()
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Current app bundle")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-
-                    Text(viewModel.appBundlePath)
-                        .font(.system(size: 11, design: .monospaced))
-                        .textSelection(.enabled)
-                        .foregroundStyle(.secondary)
-
-                    HStack {
-                        Spacer()
-
-                        Button("Reveal App in Finder") {
-                            viewModel.revealAppInFinder()
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Debug Log")
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        Button("Copy Debug Log") {
-                            viewModel.copyDebugLog()
-                        }
-                        .disabled(viewModel.debugLog.isEmpty)
-                    }
-
-                    // The log is capped at 20 lines upstream, so it can render inline instead of
-                    // opening a second scroll view inside the page.
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(viewModel.debugLog.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            .padding(.top, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text("Diagnostics")
-                .font(.title3.weight(.semibold))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// One chip per mode, carrying its own registration outcome, so a shortcut the system refused is
-    /// visible without opening Diagnostics. The full status stays in the tooltip.
-    private func modeChip(for mode: DictationMode) -> some View {
-        let failed = viewModel.failedHotKeyModes.contains(mode)
-        let shortcut = viewModel.configuration.hotKey(for: mode).displayName
-
-        return statusChip(
-            title: failed ? "\(mode.title) unavailable" : "\(shortcut)  \(mode.title)",
-            systemImage: failed ? "exclamationmark.triangle.fill" : mode.systemImage,
-            tint: failed ? .orange : nil
-        )
-        .help(viewModel.hotKeyStatus)
-    }
-
-    private func statusChip(title: String, systemImage: String, tint: Color? = nil) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(tint ?? Color.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background((tint ?? Color.secondary).opacity(tint == nil ? 0.1 : 0.15))
-            .clipShape(Capsule())
-    }
-
-    private var transcriptionModelLabel: String {
-        OpenAITranscriptionClient.model
-    }
-
-    private var translationSummary: String {
+    private var translationLanguagePair: String {
         let configuration = viewModel.configuration
         let source = configuration.translationSourceLanguage?.displayName ?? "Any language"
-        return "\(source) → \(configuration.translationTargetLanguage.displayName)\n\(configuration.translationModel.rawValue)"
-    }
-
-    private func footerInfoCard(title: String, value: String, systemImage: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text(value)
-                .font(.system(size: 13, weight: .medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        return "\(source) → \(configuration.translationTargetLanguage.displayName)"
     }
 
     private func historyLabel(for item: TranscriptHistoryItem, index: Int) -> String {

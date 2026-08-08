@@ -28,7 +28,7 @@ Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 - 📋 Paste fallback when direct insertion is not available
 - 🕘 Persistent transcript history with `Copy` and `Delete`
 - 📊 Words dictated, words per day, and speaking rate
-- 🍎 Menu bar controls, launch-at-login, and visible debug status
+- 🍎 Menu bar controls, launch-at-login, and a debug log in Settings
 
 ## How It Works
 
@@ -119,6 +119,9 @@ you leave the tab.
 - **General** — OpenAI API key, translation languages (`From` / `To`) and model, `Launch Flow2 at login`
 - **Dictionary** — preferred terms, one per line
 - **Shortcuts** — one shortcut per mode; each refuses a combination the other already owns
+- **Permissions** — `Accessibility` and `Microphone` status, the buttons that ask for them, and the
+  path of this copy of the app
+- **Diagnostics** — the outcome of the last insertion and the debug log
 
 ### Upgrading from an earlier version
 
@@ -173,8 +176,8 @@ make run CONFIGURATION=Release
 - `Flow2/OpenAITranscriptionClient.swift`: multipart transcription request
 - `Flow2/OpenAITranslationClient.swift`: translation step for `Dictate & Translate`
 - `Flow2/TextInsertionService.swift`: native insertion, terminal typing, paste fallback
-- `Flow2/SettingsView.swift`: settings UI
-- `Flow2/ContentView.swift`: main window, transcript list, debug/status UI
+- `Flow2/SettingsView.swift`: settings UI, including permissions and diagnostics
+- `Flow2/ContentView.swift`: main window, mode buttons, summary strip, transcript list
 - `Flow2/AppConfiguration.swift`: persisted config, migrations, and storage paths
 - `Flow2/DictationStatistics.swift`: word counting, aggregation, and the append-only stats file
 - `Flow2/SecretStore.swift`: the API key's keychain entry
@@ -212,7 +215,9 @@ a plain file that any tool, sync client, or backup can read.
   set of changes in it. `MARKETING_VERSION` in the project is the only number to bump by hand.
 - `Launch at login` is more reliable when the app is run from `/Applications/Flow2.app`
 - Accessibility trust is tied to the exact app bundle path
-- Debug and runtime status are intentionally visible in the main window
+- The main window holds only what the app produces: the two mode buttons, a strip of standing facts
+  — which models run, and how much has been dictated — and the transcripts. Anything the app can
+  only report on afterwards lives in Settings, under `Permissions` and `Diagnostics`
 
 ## Repository
 

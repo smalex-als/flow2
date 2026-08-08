@@ -103,6 +103,8 @@ final class AppViewModel: ObservableObject {
     @Published var failedHotKeyModes: Set<DictationMode> = []
     @Published var insertionStatus = "Auto-paste after transcription is enabled"
     @Published var accessibilityStatus = "Accessibility status unknown"
+    @Published private(set) var isAccessibilityTrusted = false
+    @Published private(set) var microphoneAccess = MicrophoneAccess.notRequested
     @Published var appBundlePath = Bundle.main.bundleURL.path
     @Published var debugLog: [String] = []
     @Published var transcriptHistory: [TranscriptHistoryItem] = []
@@ -160,7 +162,7 @@ final class AppViewModel: ObservableObject {
         }
 
         await syncLaunchAtLoginFromSystem()
-        refreshAccessibilityStatus()
+        refreshPermissionStatus()
     }
 
     /// Settings apply as they are edited, so every change funnels through here instead of a Save
@@ -305,13 +307,29 @@ final class AppViewModel: ObservableObject {
     func requestAccessibilityAccess() {
         textInsertionService.requestAccessibilityAccess()
         appendLog("Requested Accessibility access prompt")
-        refreshAccessibilityStatus()
+        refreshPermissionStatus()
     }
 
-    func refreshAccessibilityStatus() {
+    func refreshPermissionStatus() {
         let trusted = textInsertionService.isAccessibilityTrusted()
+        isAccessibilityTrusted = trusted
         accessibilityStatus = trusted ? "Accessibility trusted" : "Accessibility not trusted"
+        microphoneAccess = AudioRecorder.currentMicrophoneAccess()
         appBundlePath = Bundle.main.bundleURL.path
+    }
+
+    /// The system asks once and never again, so this is only worth offering while the answer is
+    /// still undetermined. Afterwards System Settings is the only place it can change.
+    func requestMicrophoneAccess() async {
+        await AudioRecorder.ensureMicrophonePermission()
+        appendLog("Requested Microphone access prompt")
+        refreshPermissionStatus()
+    }
+
+    func openMicrophonePrivacySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else { return }
+        NSWorkspace.shared.open(url)
+        appendLog("Opened Microphone privacy settings")
     }
 
     func revealAppInFinder() {
@@ -495,12 +513,12 @@ final class AppViewModel: ObservableObject {
             let details = try await textInsertionService.insert(finalText, targetApp: targetApp)
             statusText = "Transcription complete"
             insertionStatus = "Transcript inserted into the active app"
-            refreshAccessibilityStatus()
+            refreshPermissionStatus()
             appendLog(details)
         } catch {
             insertionStatus = "Insertion failed. Check Accessibility/Input Monitoring permissions."
             statusText = "Transcript ready, but insertion failed: \(error.localizedDescription)"
-            refreshAccessibilityStatus()
+            refreshPermissionStatus()
             appendLog("Insertion failed: \(error.localizedDescription)")
         }
     }

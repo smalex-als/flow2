@@ -14,6 +14,12 @@ struct SettingsView: View {
 
                 ShortcutsSettingsTab()
                     .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+
+                PermissionsSettingsTab()
+                    .tabItem { Label("Permissions", systemImage: "lock.shield") }
+
+                DiagnosticsSettingsTab()
+                    .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
             }
 
             if let settingsError = viewModel.settingsError {
@@ -54,7 +60,7 @@ private struct GeneralSettingsTab: View {
             } header: {
                 Text("OpenAI")
             } footer: {
-                Text("The key is stored in `~/Library/Application Support/Flow2/config.json`.")
+                Text("The key is stored in your login keychain, not in Flow2's files.")
             }
 
             Section {
@@ -243,6 +249,137 @@ private struct ShortcutsSettingsTab: View {
                 }
             }
         )
+    }
+}
+
+// MARK: - Permissions
+
+/// Permissions are something the user grants, not something Flow2 reports, so they live with the
+/// other things they can act on rather than in Diagnostics.
+private struct PermissionsSettingsTab: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Accessibility") {
+                    statusLabel(viewModel.isAccessibilityTrusted ? "Trusted" : "Not trusted",
+                                isSatisfied: viewModel.isAccessibilityTrusted)
+                }
+
+                HStack {
+                    Button("Request Access") {
+                        viewModel.requestAccessibilityAccess()
+                    }
+                    .disabled(viewModel.isAccessibilityTrusted)
+
+                    Button("Refresh") {
+                        viewModel.refreshPermissionStatus()
+                    }
+                }
+            } header: {
+                Text("Accessibility")
+            } footer: {
+                Text("Needed to place the transcript straight into the text field you were using. Without it Flow2 falls back to pasting.")
+            }
+
+            Section {
+                LabeledContent("Microphone") {
+                    statusLabel(viewModel.microphoneAccess.summary,
+                                isSatisfied: viewModel.microphoneAccess == .granted)
+                }
+
+                switch viewModel.microphoneAccess {
+                case .notRequested:
+                    Button("Request Access") {
+                        Task { await viewModel.requestMicrophoneAccess() }
+                    }
+                case .denied:
+                    Button("Open System Settings") {
+                        viewModel.openMicrophonePrivacySettings()
+                    }
+                case .granted:
+                    EmptyView()
+                }
+            } header: {
+                Text("Microphone")
+            } footer: {
+                Text(viewModel.microphoneAccess == .denied
+                     ? "macOS only asks once. Turning it back on has to happen in System Settings."
+                     : "Asked for the first time when you start a recording.")
+            }
+
+            Section {
+                Text(viewModel.appBundlePath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button("Reveal in Finder") {
+                    viewModel.revealAppInFinder()
+                }
+            } header: {
+                Text("This copy of Flow2")
+            } footer: {
+                Text("Accessibility trust is tied to this exact location. Moving the app means granting it again, so it is worth keeping Flow2 in one place.")
+            }
+        }
+        .formStyle(.grouped)
+        .task {
+            viewModel.refreshPermissionStatus()
+        }
+    }
+
+    private func statusLabel(_ text: String, isSatisfied: Bool) -> some View {
+        Label(text, systemImage: isSatisfied ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+            .foregroundStyle(isSatisfied ? Color.green : Color.orange)
+    }
+}
+
+// MARK: - Diagnostics
+
+/// What the app can only report on. None of it changes what the next dictation does, which is why
+/// it is here and not in the main window.
+private struct DiagnosticsSettingsTab: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+
+    var body: some View {
+        Form {
+            Section("Last insertion") {
+                Text(viewModel.insertionStatus)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Section {
+                if viewModel.debugLog.isEmpty {
+                    Text("Nothing logged yet.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    // Capped at 20 lines upstream, and the form is already the scroll view, so the
+                    // log renders inline rather than nesting one inside another.
+                    ForEach(Array(viewModel.debugLog.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Debug log")
+                    Spacer()
+                    Button("Copy") {
+                        viewModel.copyDebugLog()
+                    }
+                    .disabled(viewModel.debugLog.isEmpty)
+                }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

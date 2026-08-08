@@ -66,6 +66,25 @@ enum RecordingFileStore {
     }
 }
 
+/// Whether Flow2 may use the microphone, in the three states that call for different UI: one that
+/// can still be asked for, one that can only be changed in System Settings, and one that is fine.
+enum MicrophoneAccess {
+    case granted
+    case notRequested
+    case denied
+
+    var summary: String {
+        switch self {
+        case .granted:
+            return "Microphone allowed"
+        case .notRequested:
+            return "Not requested yet"
+        case .denied:
+            return "Microphone denied"
+        }
+    }
+}
+
 /// A finished recording and how long it ran. The duration is measured from the moment the shortcut
 /// went down, so it includes whatever silence the user left at each end.
 struct FinishedRecording {
@@ -169,7 +188,23 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         }
     }
 
-    private static func ensureMicrophonePermission() async -> Bool {
+    nonisolated static func currentMicrophoneAccess() -> MicrophoneAccess {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return .granted
+        case .notDetermined:
+            return .notRequested
+        case .denied, .restricted:
+            return .denied
+        @unknown default:
+            return .denied
+        }
+    }
+
+    /// The system prompt only ever appears once. After that the answer can only be changed in
+    /// System Settings, which is why the UI has to tell those two states apart.
+    @discardableResult
+    static func ensureMicrophonePermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             return true
