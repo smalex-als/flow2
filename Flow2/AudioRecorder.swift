@@ -66,6 +66,13 @@ enum RecordingFileStore {
     }
 }
 
+/// A finished recording and how long it ran. The duration is measured from the moment the shortcut
+/// went down, so it includes whatever silence the user left at each end.
+struct FinishedRecording {
+    let fileURL: URL
+    let duration: TimeInterval
+}
+
 @MainActor
 final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     /// Measured on this machine: an idle room sits near -38 dB and speech peaks near -7 dB. A -45 dB
@@ -126,7 +133,7 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         return min(1, (decibels - silenceFloorDecibels) / -silenceFloorDecibels)
     }
 
-    func stop() async throws -> URL {
+    func stop() async throws -> FinishedRecording {
         guard let recorder, let currentFileURL else {
             throw AudioRecorderError.noActiveRecording
         }
@@ -152,7 +159,7 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             throw AudioRecorderError.recordingFinalizationFailed
         }
 
-        return currentFileURL
+        return FinishedRecording(fileURL: currentFileURL, duration: duration)
     }
 
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {

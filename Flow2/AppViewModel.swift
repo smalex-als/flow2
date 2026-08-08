@@ -106,9 +106,12 @@ final class AppViewModel: ObservableObject {
     @Published var appBundlePath = Bundle.main.bundleURL.path
     @Published var debugLog: [String] = []
     @Published var transcriptHistory: [TranscriptHistoryItem] = []
+    @Published private(set) var statistics = DictationStatistics.empty
 
     private let configStore = ConfigurationStore()
     private let historyStore = TranscriptHistoryStore()
+    private let statisticsStore = DictationStatisticsStore()
+    private var statisticsRecords: [DictationRecord] = []
     private let recorder = AudioRecorder()
     private let textInsertionService = TextInsertionService()
     private let launchAtLoginService = LaunchAtLoginService()
@@ -147,6 +150,13 @@ final class AppViewModel: ObservableObject {
             transcriptHistory = try historyStore.load()
         } catch {
             appendLog("History load failed: \(error.localizedDescription)")
+        }
+
+        do {
+            statisticsRecords = try statisticsStore.load()
+            statistics = DictationStatistics(records: statisticsRecords)
+        } catch {
+            appendLog("Statistics load failed: \(error.localizedDescription)")
         }
 
         await syncLaunchAtLoginFromSystem()
@@ -399,10 +409,15 @@ final class AppViewModel: ObservableObject {
         }
 
         do {
-            let fileURL = try await recorder.stop()
-            recordedFileURL = fileURL
-            appendLog("Recording stopped: \(fileURL.lastPathComponent)")
-            try await transcribeRecordedFile(fileURL: fileURL, targetApp: insertionTargetApp, shouldInsertExternally: true)
+            let recording = try await recorder.stop()
+            recordedFileURL = recording.fileURL
+            appendLog("Recording stopped: \(recording.fileURL.lastPathComponent), duration=\(String(format: "%.1fs", recording.duration))")
+            try await transcribeRecordedFile(
+                fileURL: recording.fileURL,
+                targetApp: insertionTargetApp,
+                shouldInsertExternally: true,
+                recordedDuration: recording.duration
+            )
         } catch {
             if let fileURL = recordedFileURL {
                 insertFailedHistoryItem(fileURL: fileURL, reason: error.localizedDescription)
@@ -412,7 +427,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func transcribeRecordedFile(fileURL: URL, targetApp: NSRunningApplication?, shouldInsertExternally: Bool, replacingHistoryItemID: UUID? = nil) async throws {
+    private func transcribeRecordedFile(fileURL: URL, targetApp: NSRunningApplication?, shouldInsertExternally: Bool, recordedDuration: TimeInterval? = nil, replacingHistoryItemID: UUID? = nil) async throws {
         workflowPhase = .transcribing
         statusText = "Uploading and transcribing audio..."
         let apiKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -452,6 +467,10 @@ final class AppViewModel: ObservableObject {
             saveHistory()
         }
 
+        // Counted before translation: the rate describes how fast the user spoke, and in translate
+        // mode the inserted text is the model's wording, not theirs.
+        recordStatistics(spokenText: rawText, duration: recordedDuration)
+
         let finalText = await translateTranscriptIfNeeded(rawText, apiKey: apiKey)
         workflowPhase = .transcribing
         transcript = finalText
@@ -483,6 +502,23 @@ final class AppViewModel: ObservableObject {
             statusText = "Transcript ready, but insertion failed: \(error.localizedDescription)"
             refreshAccessibilityStatus()
             appendLog("Insertion failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// A retried recording has no duration to report — the recorder that measured it is long gone —
+    /// so it contributes its words but, at zero seconds, falls below the threshold for the rate.
+    private func recordStatistics(spokenText: String, duration: TimeInterval?) {
+        let words = WordCount.of(spokenText)
+        guard words > 0 else { return }
+
+        let record = DictationRecord(at: Date(), seconds: duration ?? 0, words: words, mode: activeMode)
+        statisticsRecords.append(record)
+        statistics = DictationStatistics(records: statisticsRecords)
+
+        do {
+            try statisticsStore.append(record)
+        } catch {
+            appendLog("Statistics save failed: \(error.localizedDescription)")
         }
     }
 

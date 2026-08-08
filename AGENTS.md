@@ -7,6 +7,8 @@
 - `Flow2/AppViewModel.swift` holds app state, the recording flow, the two dictation modes, translation, and transcript history persistence.
 - `Flow2/AudioRecorder.swift`, `Flow2/OpenAITranscriptionClient.swift`, `Flow2/OpenAITranslationClient.swift`, and `Flow2/TextInsertionService.swift` contain the core services.
 - `Flow2/SettingsView.swift` and `Flow2/ContentView.swift` contain the UI.
+- `Flow2/DictationStatistics.swift` counts words, aggregates them, and appends `stats.jsonl`. Never
+  put transcript text in that file: holding only numbers is what lets it be kept forever.
 - `Flow2/Assets.xcassets` stores app assets.
 - `Flow2.xcodeproj/` is the Xcode project. Update `project.pbxproj` when adding new source files.
 - `Flow2Tests/` holds the unit test target, covering the pure logic worth pinning down: configuration decoding and migration, pasteboard save/restore, and audio level normalization.

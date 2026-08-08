@@ -27,6 +27,7 @@ Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 - 💻 Dedicated typing path for `Terminal` and `iTerm`
 - 📋 Paste fallback when direct insertion is not available
 - 🕘 Persistent transcript history with `Copy` and `Delete`
+- 📊 Words dictated, words per day, and speaking rate
 - 🍎 Menu bar controls, launch-at-login, and visible debug status
 
 ## How It Works
@@ -175,13 +176,25 @@ make run CONFIGURATION=Release
 - `Flow2/SettingsView.swift`: settings UI
 - `Flow2/ContentView.swift`: main window, transcript list, debug/status UI
 - `Flow2/AppConfiguration.swift`: persisted config, migrations, and storage paths
+- `Flow2/DictationStatistics.swift`: word counting, aggregation, and the append-only stats file
+- `Flow2/SecretStore.swift`: the API key's keychain entry
 - `Flow2Tests/`: unit tests for configuration migration, pasteboard restore, and level metering
 
 ## Data Storage
 
 - Config: `~/Library/Application Support/Flow2/config.json`
 - History: `~/Library/Application Support/Flow2/history.json`
+- Statistics: `~/Library/Application Support/Flow2/stats.jsonl`
 - OpenAI API key: the login keychain, as a generic password under `com.smalex.Flow2`
+
+Statistics are one line of JSON per dictation and hold no transcript text — only a timestamp, a
+duration, a word count, and the mode. That is what makes them safe to keep indefinitely, unlike
+history, which is capped at 12 entries because it holds what you actually said.
+
+The word count comes from the raw transcript rather than the inserted text, so translating does not
+change how many words you are credited with saying. Recordings shorter than three seconds count
+towards the totals but not towards the speaking rate: the silence around a two-word reply is most of
+its length, and it would drag the figure well below how fast you actually speak.
 
 Versions up to 8 wrote the API key into `config.json` in plain text. It is moved to the keychain on
 first launch and the file is rewritten without it — the key only counts as migrated once the

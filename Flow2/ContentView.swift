@@ -17,6 +17,7 @@ struct ContentView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    statisticsSection
                     transcriptsSection
                     diagnosticsSection
                 }
@@ -64,6 +65,58 @@ struct ContentView: View {
             SettingsLink {
                 Label("Settings", systemImage: "slider.horizontal.3")
             }
+        }
+    }
+
+    /// Three numbers, and only while there is something to count: an empty row of zeros on a fresh
+    /// install says nothing and takes the space the transcripts need.
+    @ViewBuilder
+    private var statisticsSection: some View {
+        if viewModel.statistics.dictations > 0 {
+            let statistics = viewModel.statistics
+
+            HStack(spacing: 12) {
+                statisticCard(title: "Words dictated",
+                              value: statistics.totalWords.formatted(),
+                              detail: "\(statistics.dictations.formatted()) dictations",
+                              systemImage: "text.word.spacing")
+
+                statisticCard(title: "Per day",
+                              value: statistics.wordsPerDay.formatted(),
+                              detail: "last \(DictationStatistics.recentDays) days",
+                              systemImage: "calendar")
+
+                statisticCard(title: "Speaking rate",
+                              value: "\(statistics.wordsPerMinute.formatted()) wpm",
+                              detail: "recordings over \(Int(DictationStatistics.minimumSecondsForRate))s",
+                              systemImage: "speedometer")
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func statisticCard(title: String, value: String, detail: String, systemImage: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text(value)
+                .font(.system(size: 26, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
         }
     }
 
