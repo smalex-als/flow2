@@ -4,7 +4,10 @@
 
 - `Flow2/` contains the macOS app source.
 - `Flow2/Flow2App.swift` defines the app entry point, scenes, and menu bar extra.
-- `Flow2/AppViewModel.swift` holds app state, the recording flow, the two dictation modes, translation, and transcript history persistence.
+- `Flow2/AppViewModel.swift` holds app state, the recording flow, the three dictation modes, translation, and transcript history persistence.
+- `Flow2/TranscriptPreviewController.swift` is the `Smart Dictate` panel. It must never take keyboard
+  focus: focus moving to Flow2 costs the target app its caret, and the insertion that follows lands
+  nowhere. This was tried and it broke insertion.
 - `Flow2/AudioRecorder.swift`, `Flow2/OpenAITranscriptionClient.swift`, `Flow2/OpenAITranslationClient.swift`, and `Flow2/TextInsertionService.swift` contain the core services.
 - `Flow2/SettingsView.swift` and `Flow2/ContentView.swift` contain the UI.
 - `Flow2/DictationStatistics.swift` counts words, aggregates them, and appends `stats.jsonl`. Never
@@ -55,6 +58,8 @@
   - recording start/stop
   - transcription
   - insertion into Notes or another native text field
+  - `Smart Dictate`: the panel appearing next to the caret, each reshape button, and insertion after
+    accepting it
   - terminal insertion in `Terminal` or `iTerm`
 
 ## Commit & Pull Request Guidelines

@@ -207,6 +207,11 @@ private struct ShortcutsSettingsTab: View {
                         .frame(width: 170)
                 }
 
+                LabeledContent("Smart Dictate") {
+                    HotKeyRecorderView(shortcut: shortcut(for: .smart))
+                        .frame(width: 170)
+                }
+
                 if let conflictMessage {
                     Text(conflictMessage)
                         .font(.callout)
@@ -216,7 +221,7 @@ private struct ShortcutsSettingsTab: View {
                 Text("Push to talk")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("**Dictate & Translate** returns English when you speak Russian. **Dictate** always returns the language you spoke, untouched.")
+                    Text("**Dictate & Translate** returns English when you speak Russian. **Dictate** always returns the language you spoke, untouched. **Smart Dictate** inserts nothing until you accept it, so it can be shortened, expanded, or translated first.")
                     Text("Hold to record, release to transcribe. Click a field, then press a combination that includes ⌃, ⌥, ⇧, or ⌘. Escape cancels.")
                 }
             }
@@ -224,15 +229,17 @@ private struct ShortcutsSettingsTab: View {
         .formStyle(.grouped)
     }
 
-    /// Each mode refuses a combination the other one already owns, so neither can silently shadow
-    /// the other and leave a mode unreachable.
+    /// Each mode refuses a combination another one already owns, so none can silently shadow
+    /// another and leave a mode unreachable.
     private func shortcut(for mode: DictationMode) -> Binding<HotKeyShortcut> {
         Binding(
             get: { viewModel.configuration.hotKey(for: mode) },
             set: { newValue in
-                let other: DictationMode = mode == .dictate ? .translate : .dictate
-                guard newValue != viewModel.configuration.hotKey(for: other) else {
-                    conflictMessage = "\(newValue.displayName) is already used by \(other.title)."
+                let owner = DictationMode.allCases.first {
+                    $0 != mode && viewModel.configuration.hotKey(for: $0) == newValue
+                }
+                guard owner == nil else {
+                    conflictMessage = "\(newValue.displayName) is already used by \(owner!.title)."
                     return
                 }
 
@@ -244,6 +251,8 @@ private struct ShortcutsSettingsTab: View {
                             configuration.dictateHotKey = newValue
                         case .translate:
                             configuration.translateHotKey = newValue
+                        case .smart:
+                            configuration.smartHotKey = newValue
                         }
                     }
                 }

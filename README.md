@@ -3,7 +3,7 @@
 > Native macOS push-to-talk dictation with OpenAI transcription and fast text insertion back into
 > the app you were using. Two shortcuts, two modes: say it, or say it and get it translated.
 
-## Two Modes
+## Three Modes
 
 Which shortcut you hold decides what comes out. Push-to-talk gives you no chance to state the
 intent afterwards, so the mode is the key, not a setting.
@@ -12,11 +12,27 @@ intent afterwards, so the mode is the key, not a setting.
 | --- | --- | --- |
 | **Dictate** | `⇧⌘Space` | The transcript exactly as recognized, in the language you spoke |
 | **Dictate & Translate** | `⌃Space` | The transcript in your target language |
+| **Smart Dictate** | `⌥⌘Space` | Nothing, until you accept it — the transcript appears in a panel first |
 
 `Dictate` never sends your text to a second model. `Dictate & Translate` always does — you held
-that key on purpose.
+that key on purpose. `Smart Dictate` sends it only when you press one of the panel's buttons.
 
-Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
+All three shortcuts are always live and are configurable in `Settings → Shortcuts`. None of them
+can shadow another: a combination another mode already owns is refused.
+
+### Smart Dictate
+
+The other two modes put the transcript straight into the app you were using. Smart Dictate shows it
+next to your caret and waits. From there it can be made **Shorter**, **Longer**, or **Formal**, or
+**Translated** into your target language — each button reshapes the text in the panel, and they can
+be used one after another. **Insert** puts the current version in; **Discard** throws it away.
+
+Reshaping happens before insertion for a reason. Editing text that is already in somebody's document
+means finding it again and proving it has not moved, which cannot be done reliably in every app —
+so nothing is written until there is something to write that you have already approved.
+
+The panel never takes keyboard focus, because the field you were typing in has to keep it: that is
+where the text is going. Everything in the panel is therefore clicked rather than typed.
 
 ## Highlights
 
@@ -28,6 +44,7 @@ Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 - 📋 Paste fallback when direct insertion is not available
 - 🕘 Persistent transcript history with `Copy` and `Delete`
 - 📊 Words dictated, words per day, and speaking rate
+- ✨ `Smart Dictate` previews the transcript and can reshape it before anything is inserted
 - 🍎 Menu bar controls, launch-at-login, and a debug log in Settings
 
 ## How It Works
@@ -38,7 +55,8 @@ Both shortcuts are always live and are configurable in `Settings → Shortcuts`.
 4. Flow2 transcribes the audio with OpenAI.
 5. In `Dictate & Translate`, Flow2 translates the transcript into your target language.
 6. The result is saved into transcript history.
-7. Flow2 inserts the text back into the target app.
+7. Flow2 inserts the text back into the target app — except in `Smart Dictate`, where it shows the
+   transcript and inserts nothing until you accept it.
 
 A shortcut pressed while a previous recording is still being processed is refused, not queued.
 Flow2 beeps and shows what it is busy with, so you find out before speaking rather than after.
@@ -118,7 +136,7 @@ you leave the tab.
 
 - **General** — OpenAI API key, translation languages (`From` / `To`) and model, `Launch Flow2 at login`
 - **Dictionary** — preferred terms, one per line
-- **Shortcuts** — one shortcut per mode; each refuses a combination the other already owns
+- **Shortcuts** — one shortcut per mode; each refuses a combination another mode already owns
 - **Permissions** — `Accessibility` and `Microphone` status, the buttons that ask for them, and the
   path of this copy of the app
 - **Diagnostics** — the outcome of the last insertion and the debug log
@@ -175,6 +193,8 @@ make run CONFIGURATION=Release
 - `Flow2/AudioRecorder.swift`: audio capture and stop finalization
 - `Flow2/OpenAITranscriptionClient.swift`: multipart transcription request
 - `Flow2/OpenAITranslationClient.swift`: translation step for `Dictate & Translate`
+- `Flow2/OpenAIRewriteClient.swift`: the shorter/longer/formal rewrites offered by `Smart Dictate`
+- `Flow2/TranscriptPreviewController.swift`: the `Smart Dictate` panel
 - `Flow2/TextInsertionService.swift`: native insertion, terminal typing, paste fallback
 - `Flow2/SettingsView.swift`: settings UI, including permissions and diagnostics
 - `Flow2/ContentView.swift`: main window, mode buttons, summary strip, transcript list

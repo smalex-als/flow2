@@ -47,6 +47,8 @@ enum DictationMode: String, Codable, CaseIterable, Identifiable, Equatable {
     case dictate
     /// Insert a translation of what was said, into the language chosen in Settings.
     case translate
+    /// Show the transcript first and insert nothing until asked, so it can be reshaped beforehand.
+    case smart
 
     var id: String { rawValue }
 
@@ -56,6 +58,8 @@ enum DictationMode: String, Codable, CaseIterable, Identifiable, Equatable {
             return "Dictate"
         case .translate:
             return "Dictate & Translate"
+        case .smart:
+            return "Smart Dictate"
         }
     }
 
@@ -66,6 +70,8 @@ enum DictationMode: String, Codable, CaseIterable, Identifiable, Equatable {
             return "as spoken"
         case .translate:
             return "with translation"
+        case .smart:
+            return "with a preview"
         }
     }
 
@@ -75,7 +81,16 @@ enum DictationMode: String, Codable, CaseIterable, Identifiable, Equatable {
             return "mic.circle.fill"
         case .translate:
             return "globe"
+        case .smart:
+            return "wand.and.stars"
         }
+    }
+
+    /// Whether the transcript goes straight into the target app. Smart Dictate is the one mode that
+    /// waits: nothing is inserted until the preview is accepted, which is what makes reshaping it
+    /// safe — there is nothing in anybody's document yet to get wrong.
+    var insertsImmediately: Bool {
+        self != .smart
     }
 }
 
@@ -118,6 +133,8 @@ final class AppViewModel: ObservableObject {
     private let textInsertionService = TextInsertionService()
     private let launchAtLoginService = LaunchAtLoginService()
     private let recordingIndicator = RecordingIndicatorController()
+    private let preview = TranscriptPreviewController()
+    private var previewTargetApp: NSRunningApplication?
     private var insertionTargetApp: NSRunningApplication?
     private var stopRequestedDuringRecordingStart = false
     private var activeMode: DictationMode = .dictate
@@ -343,6 +360,9 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        // Starting to speak again answers whatever the last preview was asking.
+        discardPreview()
+
         workflowPhase = .startingRecording
         stopRequestedDuringRecordingStart = false
         activeMode = mode
@@ -507,10 +527,25 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        guard activeMode.insertsImmediately else {
+            presentPreview(finalText, targetApp: targetApp)
+            return
+        }
+
+        await insert(finalText, targetApp: targetApp)
+    }
+
+    /// Resets the phase itself rather than leaving it to the caller.
+    ///
+    /// This used to run inside the stop-recording flow, whose `defer` put the app back to idle on
+    /// the way out. Accepting a preview calls it long after that flow has finished, so with nothing
+    /// to reset the phase the app sat in `inserting` forever and refused every later shortcut.
+    private func insert(_ text: String, targetApp: NSRunningApplication?) async {
         workflowPhase = .inserting
+        defer { workflowPhase = .idle }
         statusText = "Inserting transcript..."
         do {
-            let details = try await textInsertionService.insert(finalText, targetApp: targetApp)
+            let details = try await textInsertionService.insert(text, targetApp: targetApp)
             statusText = "Transcription complete"
             insertionStatus = "Transcript inserted into the active app"
             refreshPermissionStatus()
@@ -521,6 +556,105 @@ final class AppViewModel: ObservableObject {
             refreshPermissionStatus()
             appendLog("Insertion failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Shows what was heard and inserts nothing yet.
+    ///
+    /// Reshaping is safe here for one reason: the text is not in anybody's document. Nothing has to
+    /// be located, verified, or written over, which is what made doing this after insertion fail.
+    private func presentPreview(_ text: String, targetApp: NSRunningApplication?) {
+        previewTargetApp = targetApp
+        statusText = "Waiting for you to accept the transcript"
+        appendLog("Preview shown: \(text.count) chars, targetApp=\(targetApp?.localizedName ?? "none")")
+
+        // Read while the target app still has the keyboard, which is the only moment the caret can
+        // be found — and the panel never takes that away, so it stays findable afterwards too.
+        let caret = textInsertionService.caretScreenRect(for: targetApp)
+
+        let placement = preview.show(text: text, near: caret) { [weak self] action in
+            Task { @MainActor [weak self] in
+                await self?.handlePreview(action)
+            }
+        }
+        appendLog("Preview panel: \(placement), caret=\(caret.map { "(\(Int($0.minX)), \(Int($0.minY)))" } ?? "unknown")")
+    }
+
+    private func handlePreview(_ action: TranscriptPreviewAction) async {
+        switch action {
+        case .discard:
+            appendLog("Preview discarded")
+            statusText = "Transcript discarded"
+            discardPreview()
+
+        case .insert:
+            let text = preview.model.text
+            let targetApp = previewTargetApp
+            discardPreview()
+            transcript = text
+            replaceLatestHistoryText(with: text)
+            await insert(text, targetApp: targetApp)
+
+        case .rewrite(let style):
+            await reshapePreview(describedAs: style.title.lowercased()) { text, apiKey in
+                try await OpenAIRewriteClient().rewrite(text, style: style, model: self.configuration.translationModel.rawValue, apiKey: apiKey)
+            }
+
+        case .translate:
+            let target = configuration.translationTargetLanguage
+            await reshapePreview(describedAs: "translated into \(target.displayName)") { text, apiKey in
+                try await OpenAITranslationClient().translateLatestMessage(
+                    latestMessage: text,
+                    previousMessages: [],
+                    preferredTerms: self.configuration.preferredTerms,
+                    model: self.configuration.translationModel.rawValue,
+                    sourceLanguage: self.configuration.translationSourceLanguage,
+                    targetLanguage: target,
+                    apiKey: apiKey
+                )
+            }
+        }
+    }
+
+    /// Every reshape leaves the panel showing something: the new text, or the old text and a note
+    /// saying why it did not change. Silently keeping the old wording would look like a dead button.
+    private func reshapePreview(describedAs description: String,
+                                using transform: @escaping (String, String) async throws -> String) async {
+        let apiKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            preview.model.note = "Add an API key in Settings"
+            return
+        }
+
+        let original = preview.model.text
+        preview.model.isWorking = true
+        preview.model.note = nil
+        appendLog("Preview reshape started: \(description), \(original.count) chars")
+
+        do {
+            let reshaped = try await transform(original, apiKey)
+            preview.model.text = reshaped
+            appendLog("Preview reshaped: \(description), \(reshaped.count) chars")
+        } catch {
+            preview.model.note = "Could not reshape"
+            appendLog("Preview reshape failed: \(error.localizedDescription)")
+        }
+
+        preview.model.isWorking = false
+    }
+
+    private func discardPreview() {
+        preview.hide()
+        previewTargetApp = nil
+    }
+
+    /// History should hold what actually ended up in the document, so a rewrite replaces the entry
+    /// rather than adding a second one next to it.
+    private func replaceLatestHistoryText(with text: String) {
+        guard let index = transcriptHistory.firstIndex(where: { !$0.isFailedRecording }) else { return }
+
+        let existing = transcriptHistory[index]
+        transcriptHistory[index] = TranscriptHistoryItem(id: existing.id, createdAt: existing.createdAt, text: text)
+        saveHistory()
     }
 
     /// A retried recording has no duration to report — the recorder that measured it is long gone —
@@ -859,6 +993,8 @@ private struct RecordingIndicatorView: View {
             return "AS SPOKEN"
         case .translate:
             return "\(sourceLanguage?.shortCode ?? "ANY") → \(targetLanguage.shortCode)"
+        case .smart:
+            return "PREVIEW"
         }
     }
 }

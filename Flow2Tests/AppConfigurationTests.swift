@@ -149,6 +149,9 @@ final class AppConfigurationTests: XCTestCase {
         original.preferredTerms = ["Flow2", "iTerm2"]
         original.translateHotKey = .optionCommandSpace
         original.dictateHotKey = .controlOptionSpace
+        // Distinct on purpose: leaving Smart Dictate on a default that another mode has taken would
+        // make this a test of the collision resolver rather than of the round trip.
+        original.smartHotKey = .controlSpace
         original.launchAtLogin = true
 
         let restored = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(original))
@@ -197,10 +200,63 @@ final class AppConfigurationTests: XCTestCase {
 
     // MARK: - Shortcut helpers
 
-    func testFallbackShortcutNeverReturnsTheOneBeingAvoided() {
+    func testFallbackShortcutNeverReturnsOneAlreadyTaken() {
         for shortcut in [HotKeyShortcut.controlSpace, .shiftCommandSpace, .optionCommandSpace, .controlOptionSpace] {
-            XCTAssertNotEqual(AppConfiguration.fallbackShortcut(avoiding: shortcut), shortcut)
+            XCTAssertNotEqual(AppConfiguration.fallbackShortcut(avoiding: [shortcut]), shortcut)
         }
+    }
+
+    /// With three modes, "anything but this one" is no longer a safe answer: it could hand back the
+    /// combination the third mode is holding, and one of them would stop responding.
+    func testFallbackShortcutAvoidsEveryTakenCombination() {
+        let taken: Set<HotKeyShortcut> = [.controlSpace, .shiftCommandSpace]
+
+        XCTAssertFalse(taken.contains(AppConfiguration.fallbackShortcut(avoiding: taken)))
+    }
+
+    // MARK: - Smart Dictate
+
+    /// A configuration written before Smart Dictate existed has no opinion about its shortcut, and
+    /// the default may be one the user already assigned by hand.
+    func testSmartDictateTakesTheDefaultWhenNothingClaimsIt() throws {
+        let configuration = try decode(#"{ "configVersion": 9 }"#)
+
+        XCTAssertEqual(configuration.smartHotKey, AppConfiguration.defaultSmartHotKey)
+        XCTAssertEqual(Set([configuration.dictateHotKey, configuration.translateHotKey, configuration.smartHotKey]).count, 3)
+    }
+
+    func testSmartDictateMovesAsideWhenItsDefaultIsAlreadyInUse() throws {
+        let configuration = try decode("""
+        {
+          "configVersion": 9,
+          "translateHotKey": { "keyCode": 49, "keyDisplay": "Space", "modifiers": 3 },
+          "dictateHotKey": { "keyCode": 49, "keyDisplay": "Space", "modifiers": 4 }
+        }
+        """)
+
+        XCTAssertEqual(configuration.translateHotKey, .optionCommandSpace, "a shortcut the user chose is kept")
+        XCTAssertEqual(configuration.dictateHotKey, .controlSpace)
+        XCTAssertNotEqual(configuration.smartHotKey, .optionCommandSpace)
+        XCTAssertEqual(Set([configuration.dictateHotKey, configuration.translateHotKey, configuration.smartHotKey]).count, 3)
+    }
+
+    func testEveryModeKeepsItsOwnShortcutThroughARoundTrip() throws {
+        var original = AppConfiguration()
+        original.translateHotKey = .controlSpace
+        original.dictateHotKey = .shiftCommandSpace
+        original.smartHotKey = .controlOptionSpace
+
+        let restored = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(original))
+
+        XCTAssertEqual(restored.smartHotKey, .controlOptionSpace)
+        XCTAssertEqual(restored, original)
+    }
+
+    func testTheShortcutLookupCoversSmartDictate() {
+        var configuration = AppConfiguration()
+        configuration.smartHotKey = .controlOptionSpace
+
+        XCTAssertEqual(configuration.hotKey(for: .smart), .controlOptionSpace)
     }
 
     func testShortcutLookupMatchesTheStoredPair() {

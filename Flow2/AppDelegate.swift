@@ -77,7 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // fact, so the shortcut pressed is what picks between dictating and translating.
         let requests: [(id: UInt32, shortcut: HotKeyShortcut, mode: DictationMode)] = [
             (1, configuration.translateHotKey, .translate),
-            (2, configuration.dictateHotKey, .dictate)
+            (2, configuration.dictateHotKey, .dictate),
+            (3, configuration.smartHotKey, .smart)
         ]
 
         // Settings save on every edit, and tearing the hotkeys down while one is held would drop its

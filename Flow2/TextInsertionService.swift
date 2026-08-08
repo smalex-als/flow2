@@ -157,10 +157,63 @@ final class TextInsertionService {
             }
 
             let newLocation = nsRange.location + text.utf16.count
-            setSelectedRange(location: newLocation, in: element)
+            setSelectedRange(NSRange(location: newLocation, length: 0), in: element)
             return "Direct AX insertion succeeded: app=\(app), role=\(role), subrole=\(subrole), path=value, textLength=\(text.count)"
         }
         throw TextInsertionError.directInsertionFailed("selected-text set status=\(selectedTextStatus.rawValue), role=\(role), subrole=\(subrole)")
+    }
+
+    /// Where the text would go, in screen coordinates, so a panel can be put next to it.
+    ///
+    /// Read before anything is inserted and while the target app still has focus, which is the only
+    /// moment the caret is knowable. Falls back to the bounds of the focused control, and then to
+    /// nothing at all — plenty of apps answer neither.
+    func caretScreenRect(for targetApp: NSRunningApplication?) -> CGRect? {
+        guard AXIsProcessTrusted(), let element = try? focusedElement(for: targetApp) else { return nil }
+
+        if let caret = selectedRange(in: element) {
+            var range = CFRange(location: caret.location, length: 0)
+            if let rangeValue = AXValueCreate(.cfRange, &range) {
+                var result: CFTypeRef?
+                let status = AXUIElementCopyParameterizedAttributeValue(
+                    element,
+                    kAXBoundsForRangeParameterizedAttribute as CFString,
+                    rangeValue,
+                    &result
+                )
+                if status == .success, let result, CFGetTypeID(result) == AXValueGetTypeID() {
+                    let axValue = unsafeDowncast(result, to: AXValue.self)
+                    var rect = CGRect.zero
+                    if AXValueGetType(axValue) == .cgRect, AXValueGetValue(axValue, .cgRect, &rect), rect.width >= 0, rect.height > 0 {
+                        return rect
+                    }
+                }
+            }
+        }
+
+        guard let origin = copyAXValue(kAXPositionAttribute as CFString, from: element, type: .cgPoint, as: CGPoint.self),
+              let size = copyAXValue(kAXSizeAttribute as CFString, from: element, type: .cgSize, as: CGSize.self),
+              size.height > 0 else {
+            return nil
+        }
+
+        return CGRect(origin: origin, size: size)
+    }
+
+    private func copyAXValue<T>(_ attribute: CFString, from element: AXUIElement, type: AXValueType, as: T.Type) -> T? {
+        var object: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &object) == .success,
+              let object, CFGetTypeID(object) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        let axValue = unsafeDowncast(object, to: AXValue.self)
+        guard AXValueGetType(axValue) == type else { return nil }
+
+        var result = UnsafeMutablePointer<T>.allocate(capacity: 1)
+        defer { result.deallocate() }
+        guard AXValueGetValue(axValue, type, result) else { return nil }
+        return result.pointee
     }
 
     /// Focus resolved through the target process rather than the system-wide element, because
@@ -236,8 +289,8 @@ final class TextInsertionService {
         return NSRange(location: range.location, length: range.length)
     }
 
-    private func setSelectedRange(location: Int, in element: AXUIElement) {
-        var range = CFRange(location: location, length: 0)
+    private func setSelectedRange(_ nsRange: NSRange, in element: AXUIElement) {
+        var range = CFRange(location: nsRange.location, length: nsRange.length)
         guard let value = AXValueCreate(.cfRange, &range) else { return }
         _ = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value)
     }

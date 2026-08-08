@@ -122,6 +122,7 @@ struct AppConfiguration: Codable, Equatable {
         case preferredTerms
         case translateHotKey
         case dictateHotKey
+        case smartHotKey
         case launchAtLogin
 
         // Read-only, for configurations written before dictation became two modes.
@@ -136,10 +137,11 @@ struct AppConfiguration: Codable, Equatable {
         case noTranslateHotKeyPreset
     }
 
-    static let currentConfigVersion = 9
+    static let currentConfigVersion = 10
     static let defaultTranslationModel: TranslationModelPreset = .gpt56Luna
     static let defaultTranslateHotKey: HotKeyShortcut = .controlSpace
     static let defaultDictateHotKey: HotKeyShortcut = .shiftCommandSpace
+    static let defaultSmartHotKey: HotKeyShortcut = .optionCommandSpace
 
     var configVersion = Self.currentConfigVersion
     /// Held in memory for the request that needs it, but never written to this file — it is stored
@@ -152,6 +154,7 @@ struct AppConfiguration: Codable, Equatable {
     var preferredTerms: [String] = []
     var translateHotKey: HotKeyShortcut = Self.defaultTranslateHotKey
     var dictateHotKey: HotKeyShortcut = Self.defaultDictateHotKey
+    var smartHotKey: HotKeyShortcut = Self.defaultSmartHotKey
     var launchAtLogin = false
 
     init() {}
@@ -205,8 +208,19 @@ struct AppConfiguration: Codable, Equatable {
             dictateHotKey = legacyTranslated ? legacySecondaryHotKey : legacyMainHotKey
         }
 
-        if dictateHotKey == translateHotKey {
-            dictateHotKey = Self.fallbackShortcut(avoiding: translateHotKey)
+        smartHotKey = try container.decodeIfPresent(HotKeyShortcut.self, forKey: .smartHotKey) ?? Self.defaultSmartHotKey
+
+        // A configuration written before Smart Dictate existed has no opinion about its shortcut,
+        // and the default may be one the user has already assigned by hand. Modes are separated in
+        // a fixed order so the same file always resolves the same way: a shortcut the user chose
+        // for an older mode keeps it, and the newer mode moves aside.
+        var taken: Set<HotKeyShortcut> = [translateHotKey]
+        if taken.contains(dictateHotKey) {
+            dictateHotKey = Self.fallbackShortcut(avoiding: taken)
+        }
+        taken.insert(dictateHotKey)
+        if taken.contains(smartHotKey) {
+            smartHotKey = Self.fallbackShortcut(avoiding: taken)
         }
     }
 
@@ -219,6 +233,7 @@ struct AppConfiguration: Codable, Equatable {
         try container.encode(preferredTerms, forKey: .preferredTerms)
         try container.encode(translateHotKey, forKey: .translateHotKey)
         try container.encode(dictateHotKey, forKey: .dictateHotKey)
+        try container.encode(smartHotKey, forKey: .smartHotKey)
         try container.encode(launchAtLogin, forKey: .launchAtLogin)
     }
 
@@ -228,6 +243,8 @@ struct AppConfiguration: Codable, Equatable {
             return dictateHotKey
         case .translate:
             return translateHotKey
+        case .smart:
+            return smartHotKey
         }
     }
 
@@ -243,9 +260,12 @@ struct AppConfiguration: Codable, Equatable {
             || container.contains(.pronunciationDictionary)
     }
 
-    static func fallbackShortcut(avoiding shortcut: HotKeyShortcut) -> HotKeyShortcut {
+    /// A combination none of the modes already listed is using. With three modes a single
+    /// "anything but this one" answer is no longer enough — it could hand back the shortcut the
+    /// third mode holds.
+    static func fallbackShortcut(avoiding taken: Set<HotKeyShortcut>) -> HotKeyShortcut {
         [.shiftCommandSpace, .optionCommandSpace, .controlOptionSpace, .controlSpace]
-            .first { $0 != shortcut } ?? shortcut
+            .first { !taken.contains($0) } ?? .shiftCommandSpace
     }
 
     private static func normalizedPreferredTerms(_ terms: [String]) -> [String] {
