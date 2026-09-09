@@ -29,7 +29,7 @@ final class PasteboardSnapshotTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("TRANSCRIPT", forType: .string)
         XCTAssertEqual(pasteboard.string(forType: .string), "TRANSCRIPT", "the transcript should be on the pasteboard to paste")
-        snapshot.write(to: pasteboard)
+        _ = TextInsertionService.restorePasteboard(snapshot, to: pasteboard, ifChangeCountIs: pasteboard.changeCount)
     }
 
     func testPlainTextComesBack() {
@@ -105,5 +105,19 @@ final class PasteboardSnapshotTests: XCTestCase {
 
         pasteboard.setString("something", forType: .string)
         XCTAssertFalse(PasteboardSnapshot(of: pasteboard).isEmpty)
+    }
+
+    func testCopyDuringPasteIsNotOverwrittenByRestoration() {
+        pasteboard.setString("original", forType: .string)
+        let snapshot = PasteboardSnapshot(of: pasteboard)
+        pasteboard.clearContents()
+        pasteboard.setString("transcript", forType: .string)
+        let ownedChangeCount = pasteboard.changeCount
+
+        pasteboard.clearContents()
+        pasteboard.setString("copied while pasting", forType: .string)
+        _ = TextInsertionService.restorePasteboard(snapshot, to: pasteboard, ifChangeCountIs: ownedChangeCount)
+
+        XCTAssertEqual(pasteboard.string(forType: .string), "copied while pasting")
     }
 }

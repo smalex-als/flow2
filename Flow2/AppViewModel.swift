@@ -613,7 +613,7 @@ final class AppViewModel: ObservableObject {
         do {
             let details = try await performInsertion(text, targetApp)
             statusText = "Transcription complete"
-            insertionStatus = "Transcript inserted into the active app"
+            insertionStatus = "Insertion requested in the target app"
             refreshPermissionStatus()
             appendLog(details)
         } catch {

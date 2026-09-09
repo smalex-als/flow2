@@ -106,11 +106,13 @@ Flow2 tries the most appropriate path for the current app:
 
 1. `Accessibility` insertion for native macOS text fields
 2. Terminal typing path for `Terminal` and `iTerm`
-3. Pasteboard + synthetic `Cmd+V` fallback
+3. Pasteboard + the target app's Paste menu command, falling back to `Cmd+V` sent to that process
 
-The paste path restores whatever you had on the clipboard once the target app has read the
-transcript, so dictating never costs you the thing you copied. If you copy something new while
-the paste is in flight, your new clipboard wins and nothing is put back.
+The paste path waits one second before restoring the previous clipboard contents. If you copy
+something new while the paste is in flight, your new clipboard wins and nothing is put back.
+Dispatching Paste does not confirm that text appeared in the field; diagnostics report the
+delivery method and mark the result as unverified. Flow2 checks keyboard-event access before
+sending synthetic keystrokes.
 
 ## Recordings on Disk
 

@@ -11,6 +11,9 @@ enum TextInsertionError: LocalizedError {
     case eventSourceUnavailable
     case keyEventUnavailable
     case secureInputEnabled
+    case targetAppUnavailable
+    case pasteboardWriteFailed
+    case eventPostingUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +31,12 @@ enum TextInsertionError: LocalizedError {
             return "Could not create keyboard events for paste."
         case .secureInputEnabled:
             return "Secure input is enabled, so macOS blocks synthetic keystrokes. Close any focused password field and try again."
+        case .targetAppUnavailable:
+            return "The target app is no longer active. Focus its text field and try again."
+        case .pasteboardWriteFailed:
+            return "Could not put the transcript on the pasteboard."
+        case .eventPostingUnavailable:
+            return "macOS has not granted Flow2 access to send keyboard events. Check Flow2 in Privacy & Security > Accessibility."
         }
     }
 }
@@ -68,7 +77,7 @@ struct PasteboardSnapshot {
 @MainActor
 final class TextInsertionService {
     /// How long the transcript stays on the pasteboard after Cmd+V is posted.
-    private static let pasteSettleDelay = Duration.milliseconds(250)
+    private static let pasteSettleDelay: TimeInterval = 1
 
     /// `keyboardSetUnicodeString` carries up to 20 UTF-16 units per event, so the terminal path
     /// sends the transcript in chunks instead of one event per character.
@@ -97,20 +106,21 @@ final class TextInsertionService {
             throw TextInsertionError.emptyTranscript
         }
 
-        await activateTargetAppIfNeeded(targetApp)
+        let targetApp = targetApp ?? NSWorkspace.shared.frontmostApplication
+        try await activateTargetAppIfNeeded(targetApp)
 
         if isTerminalApp(targetApp) {
             return try await typeText(trimmed, targetApp: targetApp)
         }
 
         if shouldPreferPasteInsertion(targetApp) {
-            return try await paste(trimmed)
+            return try await paste(trimmed, targetApp: targetApp)
         }
 
         do {
             return try insertDirectly(trimmed, targetApp: targetApp)
         } catch {
-            let fallback = try await paste(trimmed)
+            let fallback = try await paste(trimmed, targetApp: targetApp)
             return "Direct insertion failed (\(error.localizedDescription)); \(fallback)"
         }
     }
@@ -315,17 +325,20 @@ final class TextInsertionService {
         role == kAXTextFieldRole as String || role == "AXSearchField" || role == kAXComboBoxRole as String
     }
 
-    private func paste(_ text: String) async throws -> String {
+    private func paste(_ text: String, targetApp: NSRunningApplication?) async throws -> String {
+        guard let targetApp, targetApp.isActive, !targetApp.isTerminated else {
+            throw TextInsertionError.targetAppUnavailable
+        }
         guard !IsSecureEventInputEnabled() else {
             throw TextInsertionError.secureInputEnabled
         }
 
         let pasteboard = NSPasteboard.general
-        let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+        let appDescription = "\(targetApp.localizedName ?? "unknown"), bundle=\(targetApp.bundleIdentifier ?? "unknown"), pid=\(targetApp.processIdentifier)"
 
         // The keystrokes are built before the pasteboard is touched, so no failure can leave the
         // transcript sitting on the user's clipboard in place of what they had copied.
-        let eventSourceState = CGEventSourceStateID.combinedSessionState
+        let eventSourceState = CGEventSourceStateID.privateState
         guard let source = CGEventSource(stateID: eventSourceState) else {
             throw TextInsertionError.eventSourceUnavailable
         }
@@ -340,26 +353,107 @@ final class TextInsertionService {
         commandDown.flags = CGEventFlags.maskCommand
         vDown.flags = CGEventFlags.maskCommand
         vUp.flags = CGEventFlags.maskCommand
+        commandUp.flags = []
 
         let snapshot = PasteboardSnapshot(of: pasteboard)
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        guard pasteboard.setString(text, forType: .string) else {
+            snapshot.write(to: pasteboard)
+            throw TextInsertionError.pasteboardWriteFailed
+        }
         let ownedChangeCount = pasteboard.changeCount
+        // Also restore on an early exit, but never overwrite something copied during the wait.
+        var didRestore = false
+        defer {
+            if !didRestore {
+                _ = Self.restorePasteboard(snapshot, to: pasteboard, ifChangeCountIs: ownedChangeCount)
+            }
+        }
 
         // Give the pasteboard server time to propagate before the target app reads it.
         try? await Task.sleep(for: .milliseconds(40))
 
-        await postPasteShortcut(commandDown: commandDown, vDown: vDown, vUp: vUp, commandUp: commandUp, tap: .cghidEventTap)
+        try Task.checkCancellation()
+        guard targetApp.isActive, !targetApp.isTerminated else {
+            throw TextInsertionError.targetAppUnavailable
+        }
+
+        // A menu action reaches the app's own paste handler without depending on the keyboard
+        // layout or delivery through the global HID tap. It needs no focused AX text element.
+        let menuItem = pasteMenuItem(for: targetApp)
+        guard targetApp.isActive, !targetApp.isTerminated else {
+            throw TextInsertionError.targetAppUnavailable
+        }
+        let delivery: String
+        if let menuItem,
+           AXUIElementPerformAction(menuItem, kAXPressAction as CFString) == .success {
+            delivery = "Paste menu action accepted"
+        } else {
+            guard CGPreflightPostEventAccess() else {
+                throw TextInsertionError.eventPostingUnavailable
+            }
+            guard targetApp.isActive, !targetApp.isTerminated else {
+                throw TextInsertionError.targetAppUnavailable
+            }
+            await postPasteShortcut(commandDown: commandDown, vDown: vDown, vUp: vUp,
+                                    commandUp: commandUp, processIdentifier: targetApp.processIdentifier)
+            delivery = "Cmd+V posted to target process"
+        }
 
         // The target app reads the pasteboard while handling the synthetic Cmd+V, so the previous
         // contents can only go back once that read has had a chance to happen.
-        try? await Task.sleep(for: Self.pasteSettleDelay)
-        let restoration = restorePasteboard(snapshot, to: pasteboard, ifChangeCountIs: ownedChangeCount)
+        // Once paste was dispatched, cancellation must not restore the clipboard prematurely.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.pasteSettleDelay) {
+                continuation.resume()
+            }
+        }
+        let restoration = Self.restorePasteboard(snapshot, to: pasteboard, ifChangeCountIs: ownedChangeCount)
+        didRestore = true
 
-        return "Paste path executed: app=\(frontmostAppName), pasteboard set to transcript, Cmd+V posted via hID tap, settleDelay=\(Self.pasteSettleDelay), \(restoration)"
+        return "Paste requested (insertion unverified): app=\(appDescription), \(delivery), settleDelay=\(Self.pasteSettleDelay)s, \(restoration)"
+    }
+
+    private func pasteMenuItem(for app: NSRunningApplication) -> AXUIElement? {
+        guard AXIsProcessTrusted() else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        guard let menuBar = copyElementAttribute(kAXMenuBarAttribute as CFString, from: appElement) else {
+            return nil
+        }
+
+        // Search only menus, with a bound for apps exposing unusually large or cyclic AX trees.
+        // Match the shortcut instead of a localized title. AX modifier 0 means Command alone.
+        var pending: [(AXUIElement, Int)] = [(menuBar, 0)]
+        var visited = 0
+        while !pending.isEmpty, visited < 200 {
+            let (element, depth) = pending.removeFirst()
+            visited += 1
+            if copyStringAttribute(kAXRoleAttribute as CFString, from: element) == kAXMenuItemRole as String,
+               copyStringAttribute(kAXMenuItemCmdCharAttribute as CFString, from: element)?.lowercased() == "v" {
+                var modifiers: CFTypeRef?
+                var enabled: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXMenuItemCmdModifiersAttribute as CFString, &modifiers) == .success,
+                   (modifiers as? NSNumber)?.intValue == 0,
+                   AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabled) == .success,
+                   (enabled as? NSNumber)?.boolValue == true {
+                    return element
+                }
+            }
+            if depth < 4 {
+                var children: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
+                   let elements = children as? [AXUIElement] {
+                    pending.append(contentsOf: elements.prefix(200).map { ($0, depth + 1) })
+                }
+            }
+        }
+        return nil
     }
 
     private func typeText(_ text: String, targetApp: NSRunningApplication?) async throws -> String {
+        guard CGPreflightPostEventAccess() else {
+            throw TextInsertionError.eventPostingUnavailable
+        }
         guard !IsSecureEventInputEnabled() else {
             throw TextInsertionError.secureInputEnabled
         }
@@ -417,30 +511,26 @@ final class TextInsertionService {
 
     /// Restores the snapshot only while Flow2 still owns the pasteboard: a bumped change count means
     /// the user or another app copied something after the transcript, and that must win.
-    private func restorePasteboard(_ snapshot: PasteboardSnapshot, to pasteboard: NSPasteboard, ifChangeCountIs ownedChangeCount: Int) -> String {
+    nonisolated static func restorePasteboard(_ snapshot: PasteboardSnapshot, to pasteboard: NSPasteboard, ifChangeCountIs ownedChangeCount: Int) -> String {
         guard pasteboard.changeCount == ownedChangeCount else {
             return "pasteboard left as-is (changed by another app during paste)"
         }
 
-        guard !snapshot.isEmpty else {
-            return "pasteboard cleared (nothing to restore)"
-        }
-
         snapshot.write(to: pasteboard)
-        return "previous pasteboard contents restored"
+        return snapshot.isEmpty ? "pasteboard cleared (nothing to restore)" : "previous pasteboard contents restored"
     }
 
     /// Cancellation cuts the waits short but never abandons the remaining events: stopping midway
     /// would leave Command posted as down with nothing to release it, and the modifier would stick
     /// for every keystroke the user typed afterwards.
-    private func postPasteShortcut(commandDown: CGEvent, vDown: CGEvent, vUp: CGEvent, commandUp: CGEvent, tap: CGEventTapLocation) async {
-        commandDown.post(tap: tap)
+    private func postPasteShortcut(commandDown: CGEvent, vDown: CGEvent, vUp: CGEvent, commandUp: CGEvent, processIdentifier: pid_t) async {
+        commandDown.postToPid(processIdentifier)
         await pauseBetweenPasteKeyEvents()
-        vDown.post(tap: tap)
+        vDown.postToPid(processIdentifier)
         await pauseBetweenPasteKeyEvents()
-        vUp.post(tap: tap)
+        vUp.postToPid(processIdentifier)
         await pauseBetweenPasteKeyEvents()
-        commandUp.post(tap: tap)
+        commandUp.postToPid(processIdentifier)
     }
 
     private func pauseBetweenPasteKeyEvents() async {
@@ -448,8 +538,11 @@ final class TextInsertionService {
     }
 
     /// `activate` is asynchronous, so the activation is polled instead of assumed after a fixed wait.
-    private func activateTargetAppIfNeeded(_ targetApp: NSRunningApplication?) async {
-        guard let targetApp, !targetApp.isActive else { return }
+    private func activateTargetAppIfNeeded(_ targetApp: NSRunningApplication?) async throws {
+        guard let targetApp, !targetApp.isTerminated else {
+            throw TextInsertionError.targetAppUnavailable
+        }
+        if targetApp.isActive { return }
 
         targetApp.activate()
 
@@ -457,6 +550,7 @@ final class TextInsertionService {
             try? await Task.sleep(for: .milliseconds(25))
             if targetApp.isActive { return }
         }
+        throw TextInsertionError.targetAppUnavailable
     }
 
     private func isTerminalApp(_ targetApp: NSRunningApplication?) -> Bool {
