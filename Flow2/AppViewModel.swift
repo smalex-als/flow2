@@ -126,18 +126,44 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var statistics = DictationStatistics.empty
 
     private let configStore = ConfigurationStore()
-    private let historyStore = TranscriptHistoryStore()
+    private let historyStore: TranscriptHistoryStore
+    private let translate: (TranslationRequest, String) async throws -> String
+    private let performInsertion: (String, NSRunningApplication?) async throws -> String
     private let statisticsStore = DictationStatisticsStore()
     private var statisticsRecords: [DictationRecord] = []
     private let recorder = AudioRecorder()
     private let textInsertionService = TextInsertionService()
     private let launchAtLoginService = LaunchAtLoginService()
     private let recordingIndicator = RecordingIndicatorController()
-    private let preview = TranscriptPreviewController()
+    private let preview: TranscriptPreviewController
+    private var previewSessionID = UUID()
     private var previewTargetApp: NSRunningApplication?
     private var insertionTargetApp: NSRunningApplication?
     private var stopRequestedDuringRecordingStart = false
     private var activeMode: DictationMode = .dictate
+
+    private struct PendingTranslation {
+        let historyItemID: UUID
+        let request: TranslationRequest
+        let targetApp: NSRunningApplication?
+        let shouldInsertExternally: Bool
+    }
+
+    private var pendingTranslation: PendingTranslation?
+
+    init(historyStore: TranscriptHistoryStore = TranscriptHistoryStore(),
+         preview: TranscriptPreviewController = TranscriptPreviewController(),
+         translate: @escaping (TranslationRequest, String) async throws -> String = { request, key in
+             try await request.perform(apiKey: key)
+         },
+         performInsertion: @escaping (String, NSRunningApplication?) async throws -> String = { text, app in
+             try await TextInsertionService().insert(text, targetApp: app)
+         }) {
+        self.historyStore = historyStore
+        self.preview = preview
+        self.translate = translate
+        self.performInsertion = performInsertion
+    }
 
     var isRecording: Bool {
         workflowPhase == .startingRecording || workflowPhase == .recording
@@ -268,6 +294,9 @@ final class AppViewModel: ObservableObject {
     }
 
     func deleteHistoryItem(_ item: TranscriptHistoryItem) {
+        if pendingTranslation?.historyItemID == item.id {
+            dismissTranslationFailure()
+        }
         transcriptHistory.removeAll { $0.id == item.id }
         discardRecording(for: item)
 
@@ -509,7 +538,44 @@ final class AppViewModel: ObservableObject {
         // mode the inserted text is the model's wording, not theirs.
         recordStatistics(spokenText: rawText, duration: recordedDuration)
 
-        let finalText = await translateTranscriptIfNeeded(rawText, apiKey: apiKey)
+        await finishTranscript(rawText, mode: activeMode, targetApp: targetApp,
+                               shouldInsertExternally: shouldInsertExternally)
+    }
+
+    /// A translation failure ends this flow before insertion. The already recognized words remain
+    /// available in history and in a nonactivating recovery panel; audio need not be uploaded again.
+    func finishTranscript(_ rawText: String, mode: DictationMode, targetApp: NSRunningApplication?,
+                          shouldInsertExternally: Bool) async {
+        defer { workflowPhase = .idle }
+        var finalText = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .translate, !finalText.isEmpty {
+            let request = translationRequest(for: finalText)
+            workflowPhase = .translating
+            statusText = "Translating transcript..."
+            do {
+                finalText = try await translate(request, configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+                appendLog("Translation complete: \(finalText.count) chars")
+            } catch {
+                transcript = finalText
+                let item = TranscriptHistoryItem(text: finalText)
+                transcriptHistory.insert(item, at: 0)
+                trimHistory()
+                saveHistory()
+                pendingTranslation = PendingTranslation(historyItemID: item.id, request: request,
+                                                        targetApp: targetApp,
+                                                        shouldInsertExternally: shouldInsertExternally)
+                previewSessionID = UUID()
+                statusText = "Translation failed. Original saved; nothing inserted."
+                insertionStatus = "Waiting for translation recovery"
+                appendLog("Translation failed: \(error.localizedDescription)")
+                let caret = textInsertionService.caretScreenRect(for: targetApp)
+                preview.show(text: finalText, near: caret, isTranslationFailure: true) { [weak self] action in
+                    Task { @MainActor [weak self] in await self?.handlePreview(action) }
+                }
+                preview.model.note = "Original saved. Nothing inserted."
+                return
+            }
+        }
         workflowPhase = .transcribing
         transcript = finalText
         statusText = "Transcription complete"
@@ -527,7 +593,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        guard activeMode.insertsImmediately else {
+        guard mode.insertsImmediately else {
             presentPreview(finalText, targetApp: targetApp)
             return
         }
@@ -545,7 +611,7 @@ final class AppViewModel: ObservableObject {
         defer { workflowPhase = .idle }
         statusText = "Inserting transcript..."
         do {
-            let details = try await textInsertionService.insert(text, targetApp: targetApp)
+            let details = try await performInsertion(text, targetApp)
             statusText = "Transcription complete"
             insertionStatus = "Transcript inserted into the active app"
             refreshPermissionStatus()
@@ -582,6 +648,10 @@ final class AppViewModel: ObservableObject {
     private func handlePreview(_ action: TranscriptPreviewAction) async {
         switch action {
         case .discard:
+            if pendingTranslation != nil {
+                dismissTranslationFailure()
+                return
+            }
             appendLog("Preview discarded")
             statusText = "Transcript discarded"
             discardPreview()
@@ -612,7 +682,65 @@ final class AppViewModel: ObservableObject {
                     apiKey: apiKey
                 )
             }
+
+        case .retryTranslation:
+            await retryTranslation()
+
+        case .copyOriginal:
+            copyOriginalTranscript()
         }
+    }
+
+    func copyOriginalTranscript(to pasteboard: NSPasteboard = .general) {
+        guard let pendingTranslation else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(pendingTranslation.request.text, forType: .string)
+        preview.model.note = "Original copied"
+        statusText = "Original transcript copied"
+    }
+
+    func retryTranslation() async {
+        guard workflowPhase == .idle, let pending = pendingTranslation else { return }
+        workflowPhase = .translating
+        preview.model.isWorking = true
+        preview.model.note = "Retrying translation..."
+        statusText = "Retrying translation..."
+        defer {
+            workflowPhase = .idle
+            preview.model.isWorking = false
+        }
+
+        do {
+            let translated = try await translate(pending.request, configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+            // Dismissed recovery must never insert a late response into somebody's document.
+            guard pendingTranslation?.historyItemID == pending.historyItemID else { return }
+            appendLog("Translation retry complete: \(translated.count) chars")
+            discardPreview()
+            transcript = translated
+            if let index = transcriptHistory.firstIndex(where: { $0.id == pending.historyItemID }) {
+                let existing = transcriptHistory[index]
+                transcriptHistory[index] = TranscriptHistoryItem(id: existing.id, createdAt: existing.createdAt,
+                                                                text: translated)
+                saveHistory()
+            }
+            statusText = "Translation complete"
+            if pending.shouldInsertExternally, !shouldSkipExternalInsertion(for: pending.targetApp) {
+                await insert(translated, targetApp: pending.targetApp)
+            } else {
+                insertionStatus = "Translated transcript kept in the Flow2 window"
+            }
+        } catch {
+            guard pendingTranslation?.historyItemID == pending.historyItemID else { return }
+            preview.model.note = "Retry failed. Original saved."
+            statusText = "Translation failed. Original saved; nothing inserted."
+            appendLog("Translation retry failed: \(error.localizedDescription)")
+        }
+    }
+
+    func dismissTranslationFailure() {
+        discardPreview()
+        statusText = "Translation dismissed. Original kept in history."
+        insertionStatus = "Original transcript kept in the Flow2 window"
     }
 
     /// Every reshape leaves the panel showing something: the new text, or the old text and a note
@@ -626,15 +754,18 @@ final class AppViewModel: ObservableObject {
         }
 
         let original = preview.model.text
+        let sessionID = previewSessionID
         preview.model.isWorking = true
         preview.model.note = nil
         appendLog("Preview reshape started: \(description), \(original.count) chars")
 
         do {
             let reshaped = try await transform(original, apiKey)
+            guard previewSessionID == sessionID else { return }
             preview.model.text = reshaped
             appendLog("Preview reshaped: \(description), \(reshaped.count) chars")
         } catch {
+            guard previewSessionID == sessionID else { return }
             preview.model.note = "Could not reshape"
             appendLog("Preview reshape failed: \(error.localizedDescription)")
         }
@@ -643,8 +774,10 @@ final class AppViewModel: ObservableObject {
     }
 
     private func discardPreview() {
+        previewSessionID = UUID()
         preview.hide()
         previewTargetApp = nil
+        pendingTranslation = nil
     }
 
     /// History should hold what actually ended up in the document, so a rewrite replaces the entry
@@ -748,16 +881,7 @@ final class AppViewModel: ObservableObject {
         configuration = next
     }
 
-    /// `Dictate` inserts the transcript untouched, so the second model only runs for `translate` —
-    /// and whenever that shortcut was held, without second-guessing whether the text needs it.
-    private func translateTranscriptIfNeeded(_ text: String, apiKey: String) async -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return trimmed }
-        guard activeMode == .translate else { return trimmed }
-
-        workflowPhase = .translating
-        statusText = "Translating transcript..."
-
+    private func translationRequest(for text: String) -> TranslationRequest {
         // Failed recordings carry no text and would arrive as blank numbered lines of context.
         let previousMessages = transcriptHistory
             .lazy
@@ -770,23 +894,10 @@ final class AppViewModel: ObservableObject {
         let targetLanguage = configuration.translationTargetLanguage
         appendLog("Translation started: previousMessages=\(previousMessages.count), model=\(configuration.translationModel.rawValue), from=\(sourceLanguage?.displayName ?? "any"), to=\(targetLanguage.displayName)")
 
-        do {
-            let client = OpenAITranslationClient()
-            let translatedText = try await client.translateLatestMessage(
-                latestMessage: trimmed,
-                previousMessages: Array(previousMessages),
-                preferredTerms: configuration.preferredTerms,
-                model: configuration.translationModel.rawValue,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage,
-                apiKey: apiKey
-            )
-            appendLog("Translation complete: \(translatedText.count) chars")
-            return translatedText
-        } catch {
-            appendLog("Translation failed, using raw transcript: \(error.localizedDescription)")
-            return trimmed
-        }
+        return TranslationRequest(text: text, previousMessages: Array(previousMessages),
+                                  preferredTerms: configuration.preferredTerms,
+                                  model: configuration.translationModel.rawValue,
+                                  sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
     }
 
     private func shouldSkipExternalInsertion(for targetApp: NSRunningApplication?) -> Bool {
@@ -1034,7 +1145,11 @@ final class LaunchAtLoginService {
 }
 
 final class TranscriptHistoryStore {
-    private let fileURL = AppStoragePaths.baseDirectory.appendingPathComponent("history.json")
+    private let fileURL: URL
+
+    init(fileURL: URL = AppStoragePaths.baseDirectory.appendingPathComponent("history.json")) {
+        self.fileURL = fileURL
+    }
 
     func load() throws -> [TranscriptHistoryItem] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {

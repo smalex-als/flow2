@@ -61,6 +61,12 @@ where the text is going. Everything in the panel is therefore clicked rather tha
 A shortcut pressed while a previous recording is still being processed is refused, not queued.
 Flow2 beeps and shows what it is busy with, so you find out before speaking rather than after.
 
+If translation fails, Flow2 saves the original transcript and inserts nothing. A panel beside the
+caret offers **Retry translation**, **Copy original**, and **Dismiss**, without taking keyboard
+focus. Retry uses the original language settings and context, with the current API key, and resumes
+insertion when translation succeeds. Dismiss keeps the original in history; starting a new recording
+also closes the recovery panel. Recovery is available while that panel remains open.
+
 ## AI Pipeline
 
 ### 1. Transcription

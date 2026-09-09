@@ -14,6 +14,7 @@
 		A100000000000000000000A5 /* APIKeyStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A6 /* APIKeyStorageTests.swift */; };
 		A100000000000000000000A9 /* DictationStatisticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AA /* DictationStatisticsTests.swift */; };
 		A100000000000000000000B5 /* RewriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B6 /* RewriteTests.swift */; };
+		A100000000000000000000B9 /* TranslationRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000BA /* TranslationRecoveryTests.swift */; };
 		A10000000000000000000001 /* Flow2App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* Flow2App.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* ContentView.swift */; };
 		A10000000000000000000003 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* SettingsView.swift */; };
@@ -44,6 +45,7 @@
 		A100000000000000000000A6 /* APIKeyStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStorageTests.swift; sourceTree = "<group>"; };
 		A100000000000000000000AA /* DictationStatisticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationStatisticsTests.swift; sourceTree = "<group>"; };
 		A100000000000000000000B6 /* RewriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteTests.swift; sourceTree = "<group>"; };
+		A100000000000000000000BA /* TranslationRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationRecoveryTests.swift; sourceTree = "<group>"; };
 		A1000000000000000000000A /* Flow2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Flow2.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000011 /* Flow2App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Flow2App.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -96,6 +98,7 @@
 				A100000000000000000000A6 /* APIKeyStorageTests.swift */,
 				A100000000000000000000AA /* DictationStatisticsTests.swift */,
 				A100000000000000000000B6 /* RewriteTests.swift */,
+				A100000000000000000000BA /* TranslationRecoveryTests.swift */,
 			);
 			path = Flow2Tests;
 			sourceTree = "<group>";
@@ -348,6 +351,7 @@ fi
 				A100000000000000000000A5 /* APIKeyStorageTests.swift in Sources */,
 				A100000000000000000000A9 /* DictationStatisticsTests.swift in Sources */,
 				A100000000000000000000B5 /* RewriteTests.swift in Sources */,
+				A100000000000000000000B9 /* TranslationRecoveryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

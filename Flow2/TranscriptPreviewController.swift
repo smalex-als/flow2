@@ -6,6 +6,8 @@ enum TranscriptPreviewAction {
     case discard
     case rewrite(RewriteStyle)
     case translate
+    case retryTranslation
+    case copyOriginal
 }
 
 @MainActor
@@ -13,6 +15,7 @@ final class TranscriptPreviewModel: ObservableObject {
     @Published var text: String
     @Published var isWorking = false
     @Published var note: String?
+    @Published var isTranslationFailure = false
 
     var onAction: ((TranscriptPreviewAction) -> Void)?
 
@@ -52,10 +55,11 @@ final class TranscriptPreviewController {
     /// Reports what the panel actually did, because "it did not appear" is otherwise indistinguishable
     /// from "it appeared blank", "it appeared off screen", and "it was never asked to appear".
     @discardableResult
-    func show(text: String, near anchor: CGRect?, onAction: @escaping (TranscriptPreviewAction) -> Void) -> String {
+    func show(text: String, near anchor: CGRect?, isTranslationFailure: Bool = false, onAction: @escaping (TranscriptPreviewAction) -> Void) -> String {
         model.text = text
         model.isWorking = false
         model.note = nil
+        model.isTranslationFailure = isTranslationFailure
         model.onAction = onAction
 
         let panel = panel ?? makePanel()
@@ -148,7 +152,11 @@ private struct TranscriptPreviewView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .opacity(model.isWorking ? 0.45 : 1)
 
-            controls
+            if model.isTranslationFailure {
+                recoveryControls
+            } else {
+                controls
+            }
         }
         .padding(16)
         .frame(width: PreviewMetrics.size.width, height: PreviewMetrics.size.height)
@@ -162,7 +170,8 @@ private struct TranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Label("Smart Dictate", systemImage: "wand.and.stars")
+            Label(model.isTranslationFailure ? "Translation failed" : "Smart Dictate",
+                  systemImage: model.isTranslationFailure ? "exclamationmark.triangle" : "wand.and.stars")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
@@ -180,6 +189,17 @@ private struct TranscriptPreviewView: View {
                     .lineLimit(1)
             }
         }
+    }
+
+    private var recoveryControls: some View {
+        HStack(spacing: 8) {
+            Button("Retry translation") { model.onAction?(.retryTranslation) }
+                .buttonStyle(.borderedProminent)
+            Button("Copy original") { model.onAction?(.copyOriginal) }
+            Spacer()
+            Button("Dismiss") { model.onAction?(.discard) }
+        }
+        .disabled(model.isWorking)
     }
 
     private var controls: some View {

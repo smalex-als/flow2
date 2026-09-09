@@ -1,5 +1,22 @@
 import Foundation
 
+/// Keep the failed request's meaning stable even if settings or history change before retrying.
+struct TranslationRequest {
+    let text: String
+    let previousMessages: [String]
+    let preferredTerms: [String]
+    let model: String
+    let sourceLanguage: TranslationLanguage?
+    let targetLanguage: TranslationLanguage
+
+    func perform(apiKey: String) async throws -> String {
+        try await OpenAITranslationClient().translateLatestMessage(
+            latestMessage: text, previousMessages: previousMessages, preferredTerms: preferredTerms,
+            model: model, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage, apiKey: apiKey
+        )
+    }
+}
+
 enum OpenAITranslationError: LocalizedError {
     case invalidResponse
     case requestFailed(String)
