@@ -90,3 +90,10 @@
   like a new app and macOS asks again. Signing with a certificate makes the requirement name the
   certificate instead of the binary, and the grants survive rebuilds. Verify with
   `codesign -d -r- <app>` — the requirement must not mention `cdhash`.
+- Never leave the app running while you rebuild it. Replacing the binary under a live process
+  makes its code stop matching the file on disk, and macOS then refuses that process keychain
+  access. What the user sees is the keychain's own wording for `errSecAuthFailed`: `Could not
+  save settings: Keychain read failed: The user name or passphrase you entered is not correct.
+  (-25293)`. Nothing is wrong with any password, the signing certificate, or the stored key.
+  Confirm with `codesign -v <pid>`, which says `the code on disk does not match what is
+  running`, and relaunch. This is why `make run` stops the old instance before launching.

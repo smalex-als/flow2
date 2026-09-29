@@ -19,8 +19,8 @@ help:
 	@echo "  build      Build the application"
 	@echo "  release    Build the optimized Release application"
 	@echo "  dist       Create a distributable ZIP in dist/"
-	@echo "  run        Build and launch the application"
-	@echo "  restart    Stop, rebuild, and launch the application"
+	@echo "  run        Stop the running app, rebuild, and launch it"
+	@echo "  restart    Alias for run"
 	@echo "  stop       Quit the running application"
 	@echo "  test       Run the unit tests"
 	@echo "  open       Open the project in Xcode"
@@ -42,15 +42,26 @@ dist: release
 	ditto -c -k --sequesterRsrc --keepParent "$(RELEASE_APP)" "$(DIST_ARCHIVE)"
 	@echo "Created $(DIST_ARCHIVE)"
 
+# Stopping first is not optional. A rebuild replaces the binary under any running instance,
+# whose code then stops matching the file on disk; macOS denies that process keychain access,
+# and the app reports "The user name or passphrase you entered is not correct" (-25293).
+# Without it `open` also just foregrounds the old build, so the new one is never seen.
 run: build
+	$(MAKE) stop
 	open "$(APP)"
 
-restart:
-	$(MAKE) stop
-	$(MAKE) run
+restart: run
 
+# `pkill` only asks. Returning before the process is gone lets a following `open` land on the
+# dying instance, which fails with LaunchServices error -600, so wait for it to actually exit.
 stop:
 	@pkill -x "$(APP_NAME)" 2>/dev/null || true
+	@i=0; while pgrep -x "$(APP_NAME)" >/dev/null; do \
+		i=$$((i + 1)); \
+		[ $$i -eq 50 ] && pkill -9 -x "$(APP_NAME)" 2>/dev/null; \
+		if [ $$i -gt 80 ]; then echo "$(APP_NAME) will not exit" >&2; exit 1; fi; \
+		sleep 0.1; \
+	done
 
 test:
 	xcodebuild test \
