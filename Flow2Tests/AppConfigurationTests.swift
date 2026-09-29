@@ -89,8 +89,43 @@ final class AppConfigurationTests: XCTestCase {
 
         XCTAssertEqual(configuration.dictateHotKey, .optionCommandSpace)
         XCTAssertNotEqual(configuration.translateHotKey, configuration.dictateHotKey)
-        XCTAssertEqual(configuration.translationModel, .gpt56Terra, "a legacy model should map to its current equivalent")
+        XCTAssertEqual(configuration.translationModel, .gpt6Sol, "a legacy model should map to its current equivalent")
         XCTAssertEqual(configuration.preferredTerms, ["Flow2"], "terms differing only in case are one term")
+    }
+
+    func testRetiredModelsMapToTheCurrentGenerationByRole() throws {
+        let cases: [(String, TranslationModelPreset)] = [
+            ("gpt-5.6-luna", .gpt6Luna),
+            ("gpt-5.6-terra", .gpt6Sol),
+            // The trap: GPT-6 kept the name `Sol` for a lower tier, so matching by name would move
+            // someone off the best model without anything looking wrong.
+            ("gpt-5.6-sol", .gpt6Astra)
+        ]
+
+        for (stored, expected) in cases {
+            let configuration = try decode(#"{ "configVersion": 10, "translationModel": "\#(stored)" }"#)
+            XCTAssertEqual(configuration.translationModel, expected, "\(stored) should map to \(expected.rawValue)")
+        }
+    }
+
+    func testModelChosenOnTheCurrentVersionIsKept() throws {
+        let configuration = try decode(#"{ "configVersion": 11, "translationModel": "gpt-6-astra" }"#)
+
+        XCTAssertEqual(configuration.translationModel, .gpt6Astra)
+    }
+
+    /// `allCases` is what the Settings picker lists, so a retired model reaching it would offer a
+    /// model the app no longer intends to send.
+    func testOnlyCurrentModelsAreOfferedForSelection() {
+        XCTAssertEqual(TranslationModelPreset.allCases, [.gpt6Luna, .gpt6Sol, .gpt6Astra])
+
+        for preset in TranslationModelPreset.allCases {
+            XCTAssertEqual(preset.currentEquivalent, preset, "\(preset.rawValue) should be its own equivalent")
+            XCTAssertFalse(preset.displayName.contains("Legacy"), "\(preset.rawValue) should not be labelled legacy")
+        }
+
+        XCTAssertTrue(TranslationModelPreset.allCases.contains(AppConfiguration.defaultTranslationModel),
+                      "the default must be selectable")
     }
 
     // MARK: - Languages

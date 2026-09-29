@@ -88,7 +88,7 @@ private struct GeneralSettingsTab: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Runs every time you hold the **Dictate & Translate** shortcut. Plain dictation never sends the text to a second model.")
                     Text("**Any language** lets the model work out what you spoke, and leaves the text alone if it is already \(viewModel.configuration.translationTargetLanguage.displayName).")
-                    Text("Luna is the fastest, Terra balances speed and quality, Sol is the most accurate.")
+                    Text("Luna is the fastest, Sol balances speed and quality, Astra is the most accurate.")
                 }
             }
 

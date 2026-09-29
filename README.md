@@ -78,7 +78,7 @@ also closes the recovery panel. Recovery is available while that panel remains o
 ### 2. Translation
 
 - Endpoint: `POST /v1/chat/completions`
-- Default model: `gpt-5.6-luna`
+- Default model: `gpt-6-luna`
 - Runs on every `Dictate & Translate` recording, and never on plain dictation
 - Source language is either a named one or `Any language`, where the model works it out
 - With `Any language`, text already in the target language is returned unchanged

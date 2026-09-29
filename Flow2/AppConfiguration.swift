@@ -48,6 +48,9 @@ enum TranslationLanguage: String, Codable, CaseIterable, Identifiable {
 }
 
 enum TranslationModelPreset: String, Codable, CaseIterable, Identifiable {
+    case gpt6Luna = "gpt-6-luna"
+    case gpt6Sol = "gpt-6-sol"
+    case gpt6Astra = "gpt-6-astra"
     case gpt56Luna = "gpt-5.6-luna"
     case gpt56Terra = "gpt-5.6-terra"
     case gpt56Sol = "gpt-5.6-sol"
@@ -58,17 +61,23 @@ enum TranslationModelPreset: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     static var allCases: [TranslationModelPreset] {
-        [.gpt56Luna, .gpt56Terra, .gpt56Sol]
+        [.gpt6Luna, .gpt6Sol, .gpt6Astra]
     }
 
     var displayName: String {
         switch self {
+        case .gpt6Luna:
+            return "GPT-6 Luna"
+        case .gpt6Sol:
+            return "GPT-6 Sol"
+        case .gpt6Astra:
+            return "GPT-6 Astra"
         case .gpt56Luna:
-            return "GPT-5.6 Luna"
+            return "GPT-5.6 Luna (Legacy)"
         case .gpt56Terra:
-            return "GPT-5.6 Terra"
+            return "GPT-5.6 Terra (Legacy)"
         case .gpt56Sol:
-            return "GPT-5.6 Sol"
+            return "GPT-5.6 Sol (Legacy)"
         case .gpt54Nano:
             return "GPT-5.4 Nano (Legacy)"
         case .gpt54Mini:
@@ -78,15 +87,20 @@ enum TranslationModelPreset: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// The current model that plays the same role as a retired one.
+    ///
+    /// Matched by role, never by name. GPT-6 moved `Sol` from the top of the 5.6 line down to the
+    /// middle and put `Astra` above it, so mapping `Sol` to `Sol` would quietly drop someone from
+    /// the best model to the mid one. There is no GPT-6 `Terra`; that tier is now `Sol`.
     var currentEquivalent: TranslationModelPreset {
         switch self {
-        case .gpt54Nano:
-            return .gpt56Luna
-        case .gpt54Mini:
-            return .gpt56Terra
-        case .gpt54:
-            return .gpt56Sol
-        case .gpt56Luna, .gpt56Terra, .gpt56Sol:
+        case .gpt54Nano, .gpt56Luna:
+            return .gpt6Luna
+        case .gpt54Mini, .gpt56Terra:
+            return .gpt6Sol
+        case .gpt54, .gpt56Sol:
+            return .gpt6Astra
+        case .gpt6Luna, .gpt6Sol, .gpt6Astra:
             return self
         }
     }
@@ -137,8 +151,8 @@ struct AppConfiguration: Codable, Equatable {
         case noTranslateHotKeyPreset
     }
 
-    static let currentConfigVersion = 10
-    static let defaultTranslationModel: TranslationModelPreset = .gpt56Luna
+    static let currentConfigVersion = 11
+    static let defaultTranslationModel: TranslationModelPreset = .gpt6Luna
     static let defaultTranslateHotKey: HotKeyShortcut = .controlSpace
     static let defaultDictateHotKey: HotKeyShortcut = .shiftCommandSpace
     static let defaultSmartHotKey: HotKeyShortcut = .optionCommandSpace
@@ -169,7 +183,9 @@ struct AppConfiguration: Codable, Equatable {
         let decodedModel = try container.decodeIfPresent(TranslationModelPreset.self, forKey: .translationModel)
             ?? container.decodeIfPresent(TranslationModelPreset.self, forKey: .editingModel)
             ?? Self.defaultTranslationModel
-        translationModel = decodedConfigVersion < 3 ? decodedModel.currentEquivalent : decodedModel
+        // Raised to `currentConfigVersion` by each model generation, so documents written before
+        // the rollover move to the equivalent current model instead of naming a retired one.
+        translationModel = decodedConfigVersion < 11 ? decodedModel.currentEquivalent : decodedModel
 
         translationTargetLanguage = try container.decodeIfPresent(TranslationLanguage.self, forKey: .translationTargetLanguage) ?? .english
         if let decodedSource = try container.decodeIfPresent(TranslationLanguage.self, forKey: .translationSourceLanguage) {
