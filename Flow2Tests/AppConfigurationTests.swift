@@ -6,11 +6,34 @@ import XCTest
 /// and a silent regression there rewrites somebody's shortcuts or translation languages without
 /// anything looking broken. These pin the decisions down.
 final class AppConfigurationTests: XCTestCase {
+    @MainActor
+    func testInstallPromptOnlyOffersForNonInstalledReleaseLocations() {
+        let home = URL(fileURLWithPath: "/Users/test")
+        for path in ["/Applications/Flow2.app", "/Users/test/Applications/Flow2.app",
+                     "/tmp/.deriveddata/Build/Products/Debug/Flow2.app",
+                     "/Users/test/Library/Developer/Xcode/DerivedData/Flow2/Build/Products/Release/Flow2.app",
+                     "/tmp/custom/Build/Products/Debug/Flow2.app"] {
+            XCTAssertFalse(ApplicationInstaller.shouldOffer(for: URL(fileURLWithPath: path), home: home), path)
+        }
+        for path in ["/Users/test/Downloads/Flow2.app", "/Volumes/Flow2/Flow2.app",
+                     "/Users/test/Desktop/Flow2.app", "/Applications-other/Flow2.app"] {
+            XCTAssertTrue(ApplicationInstaller.shouldOffer(for: URL(fileURLWithPath: path), home: home), path)
+        }
+    }
+
     private func decode(_ json: String) throws -> AppConfiguration {
         try JSONDecoder().decode(AppConfiguration.self, from: Data(json.utf8))
     }
 
     // MARK: - Hot key migration
+
+    func testDefaultShortcutsMatchPushToTalkBindings() throws {
+        for configuration in [AppConfiguration(), try decode("{}"), try decode(#"{ "configVersion": 11 }"#)] {
+            XCTAssertEqual(configuration.translateHotKey, .controlSpace)
+            XCTAssertEqual(configuration.dictateHotKey, .controlOptionSpace)
+            XCTAssertEqual(configuration.smartHotKey, .optionCommandSpace)
+        }
+    }
 
     func testTranslatingMainShortcutBecomesTheTranslateMode() throws {
         let configuration = try decode("""
@@ -38,7 +61,7 @@ final class AppConfigurationTests: XCTestCase {
         """)
 
         XCTAssertEqual(configuration.dictateHotKey, .controlSpace)
-        XCTAssertEqual(configuration.translateHotKey, .shiftCommandSpace)
+        XCTAssertEqual(configuration.translateHotKey, .controlOptionSpace)
     }
 
     /// The second shortcut used to be opt-in. Both modes exist unconditionally now, so a disabled

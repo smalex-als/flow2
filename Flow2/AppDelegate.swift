@@ -32,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Self.updateActivationPolicy()
+        Task { @MainActor in
+            ApplicationInstaller.offerIfNeeded()
+        }
     }
 
     /// Dictation is a menu bar job, so Flow2 stays out of the Dock and the app switcher while it is

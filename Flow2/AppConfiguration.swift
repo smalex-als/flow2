@@ -157,7 +157,7 @@ struct AppConfiguration: Codable, Equatable {
     static let currentConfigVersion = 11
     static let defaultTranslationModel: TranslationModelPreset = .gpt6Luna
     static let defaultTranslateHotKey: HotKeyShortcut = .controlSpace
-    static let defaultDictateHotKey: HotKeyShortcut = .shiftCommandSpace
+    static let defaultDictateHotKey: HotKeyShortcut = .controlOptionSpace
     static let defaultSmartHotKey: HotKeyShortcut = .optionCommandSpace
 
     var configVersion = Self.currentConfigVersion
