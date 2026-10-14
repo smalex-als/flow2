@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A100000000000000000000C1 /* ApplicationInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000C2 /* ApplicationInstaller.swift */; };
 		A1000000000000000000004E /* AppConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* AppConfigurationTests.swift */; };
 		A1000000000000000000004F /* PasteboardSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000043 /* PasteboardSnapshotTests.swift */; };
 		A10000000000000000000050 /* AudioLevelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000044 /* AudioLevelTests.swift */; };
@@ -37,6 +38,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A100000000000000000000C2 /* ApplicationInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationInstaller.swift; sourceTree = "<group>"; };
 		A10000000000000000000040 /* Flow2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Flow2Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000042 /* AppConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigurationTests.swift; sourceTree = "<group>"; };
 		A10000000000000000000043 /* PasteboardSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardSnapshotTests.swift; sourceTree = "<group>"; };
@@ -121,6 +123,7 @@
 				A10000000000000000000036 /* AboutView.swift */,
 				A10000000000000000000014 /* AppViewModel.swift */,
 				A1000000000000000000001C /* AppDelegate.swift */,
+				A100000000000000000000C2 /* ApplicationInstaller.swift */,
 				A10000000000000000000015 /* AudioRecorder.swift */,
 				A10000000000000000000039 /* HotKeyShortcut.swift */,
 				A1000000000000000000003B /* HotKeyRecorderView.swift */,
@@ -363,6 +366,7 @@ fi
 				A10000000000000000000035 /* AboutView.swift in Sources */,
 				A10000000000000000000007 /* AppConfiguration.swift in Sources */,
 				A1000000000000000000000B /* AppDelegate.swift in Sources */,
+				A100000000000000000000C1 /* ApplicationInstaller.swift in Sources */,
 				A10000000000000000000005 /* AudioRecorder.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
 				A10000000000000000000001 /* Flow2App.swift in Sources */,

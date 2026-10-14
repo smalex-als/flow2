@@ -10,7 +10,7 @@ intent afterwards, so the mode is the key, not a setting.
 
 | Mode | Default shortcut | Result |
 | --- | --- | --- |
-| **Dictate** | `⇧⌘Space` | The transcript exactly as recognized, in the language you spoke |
+| **Dictate** | `⌃⌥Space` | The transcript exactly as recognized, in the language you spoke |
 | **Dictate & Translate** | `⌃Space` | The transcript in your target language |
 | **Smart Dictate** | `⌥⌘Space` | Nothing, until you accept it — the transcript appears in a panel first |
 
@@ -238,6 +238,12 @@ running as you while the keychain is unlocked; what it buys is that the key is n
 a plain file that any tool, sync client, or backup can read.
 
 ## Notes
+
+- When launched outside `/Applications` or `~/Applications`, Flow2 offers to install a copy and
+  relaunch it. If `/Applications` is not writable, it uses `~/Applications`. The original copy is
+  kept. Replacing an existing installation requires confirmation and that copy must be closed.
+  Choose `Later` to defer or `Don't Ask Again` to disable the prompt. Xcode builds and previews
+  do not prompt. macOS may ask for permissions again after installation.
 
 - `About Flow2` reports the marketing version, a build number taken from the commit count, the
   commit it was built from, and that commit's subject — so a running app can be tied to the exact
