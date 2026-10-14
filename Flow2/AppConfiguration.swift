@@ -49,6 +49,7 @@ enum TranslationLanguage: String, Codable, CaseIterable, Identifiable {
 
 enum TranslationModelPreset: String, Codable, CaseIterable, Identifiable {
     case gpt6Luna = "gpt-6-luna"
+    case gpt61Sol = "gpt-6.1-sol"
     case gpt6Sol = "gpt-6-sol"
     case gpt6Astra = "gpt-6-astra"
     case gpt56Luna = "gpt-5.6-luna"
@@ -61,13 +62,15 @@ enum TranslationModelPreset: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     static var allCases: [TranslationModelPreset] {
-        [.gpt6Luna, .gpt6Sol, .gpt6Astra]
+        [.gpt6Luna, .gpt61Sol, .gpt6Sol, .gpt6Astra]
     }
 
     var displayName: String {
         switch self {
         case .gpt6Luna:
             return "GPT-6 Luna"
+        case .gpt61Sol:
+            return "GPT-6.1 Sol"
         case .gpt6Sol:
             return "GPT-6 Sol"
         case .gpt6Astra:
@@ -100,7 +103,7 @@ enum TranslationModelPreset: String, Codable, CaseIterable, Identifiable {
             return .gpt6Sol
         case .gpt54, .gpt56Sol:
             return .gpt6Astra
-        case .gpt6Luna, .gpt6Sol, .gpt6Astra:
+        case .gpt6Luna, .gpt61Sol, .gpt6Sol, .gpt6Astra:
             return self
         }
     }
