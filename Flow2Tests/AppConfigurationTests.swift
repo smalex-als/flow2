@@ -117,7 +117,7 @@ final class AppConfigurationTests: XCTestCase {
     /// `allCases` is what the Settings picker lists, so a retired model reaching it would offer a
     /// model the app no longer intends to send.
     func testOnlyCurrentModelsAreOfferedForSelection() {
-        XCTAssertEqual(TranslationModelPreset.allCases, [.gpt6Luna, .gpt6Sol, .gpt6Astra])
+        XCTAssertEqual(TranslationModelPreset.allCases, [.gpt6Luna, .gpt61Sol, .gpt6Sol, .gpt6Astra])
 
         for preset in TranslationModelPreset.allCases {
             XCTAssertEqual(preset.currentEquivalent, preset, "\(preset.rawValue) should be its own equivalent")
@@ -126,6 +126,17 @@ final class AppConfigurationTests: XCTestCase {
 
         XCTAssertTrue(TranslationModelPreset.allCases.contains(AppConfiguration.defaultTranslationModel),
                       "the default must be selectable")
+    }
+
+    func testGPT61SolSelectionSurvivesConfigurationRoundTrip() throws {
+        var configuration = AppConfiguration()
+        configuration.translationModel = .gpt61Sol
+
+        let data = try JSONEncoder().encode(configuration)
+        let restored = try JSONDecoder().decode(AppConfiguration.self, from: data)
+
+        XCTAssertEqual(restored.translationModel, .gpt61Sol)
+        XCTAssertEqual(restored.translationModel.rawValue, "gpt-6.1-sol")
     }
 
     // MARK: - Languages
