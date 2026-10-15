@@ -5,6 +5,43 @@ import XCTest
 /// A reshaped transcript is what the user is about to put in a document, so the model may change
 /// the wording and nothing else. These pin down what each button is allowed to ask for.
 final class RewriteTests: XCTestCase {
+    func testGPT61SolRequestsUseLowReasoningAndOmitTemperature() throws {
+        for model in ["gpt-6.1-sol", "gpt-6.1-sol-2026-10-01"] {
+            let translation = OpenAITranslationClient.RequestBody(
+                model: model, serviceTier: "priority", temperature: 0.2,
+                messages: [.init(role: "user", content: "Hello")]
+            )
+            let rewrite = OpenAIRewriteClient.RequestBody(
+                model: model, serviceTier: "priority", temperature: 0.3,
+                messages: [.init(role: "user", content: "Hello")]
+            )
+            for data in [try JSONEncoder().encode(translation), try JSONEncoder().encode(rewrite)] {
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+                XCTAssertEqual(json["reasoning_effort"] as? String, "low")
+                XCTAssertNil(json["temperature"])
+                XCTAssertEqual(json["model"] as? String, model)
+                XCTAssertEqual(json["service_tier"] as? String, "priority")
+            }
+        }
+    }
+
+    func testExistingModelsKeepTheirRequestParameters() throws {
+        for model in ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"] {
+            let translation = OpenAITranslationClient.RequestBody(
+                model: model, serviceTier: "priority", temperature: 0.2, messages: []
+            )
+            let rewrite = OpenAIRewriteClient.RequestBody(
+                model: model, serviceTier: "priority", temperature: 0.3, messages: []
+            )
+            for (data, temperature) in [(try JSONEncoder().encode(translation), 0.2),
+                                        (try JSONEncoder().encode(rewrite), 0.3)] {
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+                XCTAssertEqual(json["reasoning_effort"] as? String, "none")
+                XCTAssertEqual(json["temperature"] as? Double, temperature)
+            }
+        }
+    }
+
     // MARK: - What the model is asked for
 
     func testEachStyleAsksForItsOwnChange() {

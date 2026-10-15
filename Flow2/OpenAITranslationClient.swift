@@ -41,7 +41,7 @@ final class OpenAITranslationClient {
     private static let requestTimeout: TimeInterval = 180
     private static let resourceTimeout: TimeInterval = 300
 
-    private struct RequestBody: Encodable {
+    struct RequestBody: Encodable {
         struct Message: Encodable {
             let role: String
             let content: String
@@ -50,8 +50,18 @@ final class OpenAITranslationClient {
         let model: String
         let serviceTier: String
         let reasoningEffort: String
-        let temperature: Double
+        let temperature: Double?
         let messages: [Message]
+
+        init(model: String, serviceTier: String, temperature: Double, messages: [Message]) {
+            self.model = model
+            self.serviceTier = serviceTier
+            // GPT-6.1 Sol requires reasoning and does not accept sampling overrides.
+            let requiresReasoning = model == "gpt-6.1-sol" || model.hasPrefix("gpt-6.1-sol-")
+            self.reasoningEffort = requiresReasoning ? "low" : "none"
+            self.temperature = requiresReasoning ? nil : temperature
+            self.messages = messages
+        }
 
         private enum CodingKeys: String, CodingKey {
             case model
@@ -162,7 +172,6 @@ final class OpenAITranslationClient {
         let body = RequestBody(
             model: model,
             serviceTier: "priority",
-            reasoningEffort: "none",
             temperature: 0.2,
             messages: [
                 .init(role: "system", content: systemPrompt),
