@@ -46,19 +46,21 @@ dist: release
 # whose code then stops matching the file on disk; macOS denies that process keychain access,
 # and the app reports "The user name or passphrase you entered is not correct" (-25293).
 # Without it `open` also just foregrounds the old build, so the new one is never seen.
-run: build
+run:
 	$(MAKE) stop
+	$(MAKE) build
 	open "$(APP)"
 
 restart: run
 
 # `pkill` only asks. Returning before the process is gone lets a following `open` land on the
 # dying instance, which fails with LaunchServices error -600, so wait for it to actually exit.
+# Scope both commands to this user; another user's instance cannot be stopped by us.
 stop:
-	@pkill -x "$(APP_NAME)" 2>/dev/null || true
-	@i=0; while pgrep -x "$(APP_NAME)" >/dev/null; do \
+	@pkill -u "$$(id -u)" -x "$(APP_NAME)" 2>/dev/null || true
+	@i=0; while pgrep -u "$$(id -u)" -x "$(APP_NAME)" >/dev/null; do \
 		i=$$((i + 1)); \
-		[ $$i -eq 50 ] && pkill -9 -x "$(APP_NAME)" 2>/dev/null; \
+		[ $$i -eq 50 ] && pkill -9 -u "$$(id -u)" -x "$(APP_NAME)" 2>/dev/null; \
 		if [ $$i -gt 80 ]; then echo "$(APP_NAME) will not exit" >&2; exit 1; fi; \
 		sleep 0.1; \
 	done

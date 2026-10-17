@@ -100,7 +100,7 @@ final class ApplicationInstaller {
                     showError((error?.localizedDescription ?? "The installed copy could not be launched.") + recovery)
                     return
                 }
-                if hasBackup { try? files.removeItem(at: backup) }
+                if hasBackup { try? FileManager.default.removeItem(at: backup) }
                 NSApp.terminate(nil)
             }
         }
